@@ -9,6 +9,7 @@ import re
 from typing import List, Dict
 from io import StringIO, BytesIO
 from rapidfuzz import process, fuzz
+from openai import OpenAi
 
 ###############################################################################
 # 0) SETUP: OPENAI KEY (from Streamlit secrets) + PAGE TITLE
