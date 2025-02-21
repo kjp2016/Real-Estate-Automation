@@ -6,7 +6,7 @@ import pandas as pd
 import json
 import openai
 import re
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from io import StringIO, BytesIO
 from rapidfuzz import process, fuzz
 
@@ -17,7 +17,7 @@ st.set_page_config(page_title="Real Estate Automation")
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 ###############################################################################
-# 1) ADDRESS EXTRACTION LOGIC (merged from AddressExtract.py, but adapted)
+# 1) ADDRESS EXTRACTION LOGIC
 ###############################################################################
 address_schema = {
     "name": "address_schema",
@@ -45,7 +45,6 @@ address_schema = {
     }
 }
 
-
 def extract_text_from_pdf(file_bytes: BytesIO) -> str:
     """Extract text using pdfplumber from a PDF in memory."""
     text = ""
@@ -54,8 +53,8 @@ def extract_text_from_pdf(file_bytes: BytesIO) -> str:
             page_text = page.extract_text()
             if page_text:
                 text += page_text + "\n"
-    return " ".join(text.split())  # normalize spaces
-
+    # Normalize spacing
+    return " ".join(text.split())
 
 def extract_text_from_csv(file_bytes: BytesIO) -> str:
     """Extract raw text from a CSV in memory."""
@@ -66,38 +65,37 @@ def extract_text_from_csv(file_bytes: BytesIO) -> str:
         lines.append(" ".join(row))
     return "\n".join(lines).strip()
 
-
 def extract_text_from_excel(file_bytes: BytesIO) -> str:
     """Extract text from all sheets/columns in an Excel file in memory."""
     xls = pd.ExcelFile(file_bytes)
     collected = []
     for sheet_name in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name=sheet_name)
-        # Heuristic: any column that might hold addresses
+        # Heuristic: columns that might have addresses
         for col in df.columns:
             if any(k in col.lower() for k in ["address", "property", "location"]):
                 collected.extend(df[col].dropna().astype(str).tolist())
     return "\n".join(collected)
 
-
 def extract_addresses_with_ai(text: str) -> List[dict]:
     """
-    Uses the standard openai.ChatCompletion (>=1.0.0) to parse addresses
-    from unstructured text. We instruct GPT to return valid JSON with an
-    'addresses' list that follows address_schema.
+    Uses the standard openai.ChatCompletion to parse addresses from unstructured text.
+    We instruct GPT to return valid JSON with an 'addresses' list that follows address_schema.
     """
     if not text.strip():
+        print("DEBUG: The extracted text is empty or whitespace only.")
         return []
 
     # Incorporate the JSON schema into the system prompt
-    system_prompt = f"""You are a data extraction assistant. 
+    system_prompt = f"""You are a data extraction assistant.
 Return valid JSON containing an 'addresses' list that follows this schema:
 {json.dumps(address_schema)}
 
 Do NOT include extraneous keys. If an address has a unit, it should be in the
 'Unit' field. Output must be valid JSON, with a top-level object containing an
-'addresses' array."""
-    
+'addresses' array.
+"""
+
     user_prompt = f"""Extract all property addresses from the text below:
 {text}
 
@@ -106,30 +104,28 @@ Ensure your output strictly follows the 'addresses' schema above, in valid JSON.
 
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4",  # or "gpt-3.5-turbo"
+            model="gpt-4",  # or "gpt-3.5-turbo" if you don't have GPT-4
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0,
         )
-        # The raw text from GPT
         raw_content = response.choices[0].message["content"]
-        # DEBUG: print or st.write the raw output to see what's coming back
-        print("RAW GPT OUTPUT:\n", raw_content)
+        # DEBUG: Print the raw GPT output to see what's returned
+        print("----- RAW GPT OUTPUT -----")
+        print(raw_content)
+        print("--------------------------")
 
-        # Attempt to parse as JSON
         data = json.loads(raw_content)
         return data.get("addresses", [])
     except Exception as e:
         print(f"Error parsing AI response: {e}")
         return []
 
-
 def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
     """
-    For each user-uploaded MLS file, parse all text, run GPT-based extraction,
-    and aggregate addresses into a DataFrame.
+    For each user-uploaded MLS file, parse text, call GPT, and aggregate addresses.
     """
     all_addresses = []
 
@@ -138,6 +134,7 @@ def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
         ext = os.path.splitext(filename)[1].lower()
         st.info(f"Processing MLS file: {filename}")
 
+        # Extract text
         if ext == ".pdf":
             text = extract_text_from_pdf(file)
         elif ext == ".csv":
@@ -148,19 +145,21 @@ def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
             st.warning(f"Skipping unsupported file format: {filename}")
             continue
 
+        # DEBUG: print the extracted text
+        print(f"----- EXTRACTED TEXT FROM {filename} -----")
+        print(text)
+        print("-----------------------------------------")
+
         # Send to GPT
         addresses = extract_addresses_with_ai(text)
         all_addresses.extend(addresses)
 
     if not all_addresses:
-        df_empty = pd.DataFrame(columns=["Street Address", "Unit", "City", "State", "Zip Code"])
-        return df_empty
-
+        return pd.DataFrame(columns=["Street Address", "Unit", "City", "State", "Zip Code"])
     return pd.DataFrame(all_addresses)
 
-
 ###############################################################################
-# 2) BROKERAGE + MERGE LOGIC (from stephenrun5.py, but adapted to in-memory)
+# The rest: phone/compass merges + classifications
 ###############################################################################
 BROKERAGE_EMAIL_DOMAINS = {
     "compass.com", "coldwellbanker.com", "century21.com",
@@ -204,13 +203,10 @@ BROKERAGE_EMAIL_DOMAINS = {
     "kwrealty.com", "thebestapartments.com", "moravillarealty.com",
     "remax-100-ny.com", "cushwake.com", "moiniangroup.com"
 }
-
 VENDOR_KEYWORDS = ["title", "mortgage", "lending", "escrow"]
 
-
-def is_real_estate_agent(email_list: List[str]) -> bool:
-    """Checks if any email belongs to a known brokerage domain."""
-    for email in email_list:
+def is_real_estate_agent(emails: List[str]) -> bool:
+    for email in emails:
         match = re.search(r"@([\w.-]+)$", email)
         if match:
             domain = match.group(1).lower()
@@ -218,10 +214,8 @@ def is_real_estate_agent(email_list: List[str]) -> bool:
                 return True
     return False
 
-
-def is_vendor(email_list: List[str]) -> bool:
-    """Checks if any email domain has known vendor keywords."""
-    for email in email_list:
+def is_vendor(emails: List[str]) -> bool:
+    for email in emails:
         match = re.search(r"@([\w.-]+)$", email)
         if match:
             domain = match.group(1).lower()
@@ -229,58 +223,43 @@ def is_vendor(email_list: List[str]) -> bool:
                 return True
     return False
 
-
 def load_csv_in_memory(file: BytesIO) -> List[Dict[str, str]]:
-    """Reads a CSV (BytesIO) into a list of dict rows, just like csv.DictReader."""
     text_data = file.getvalue().decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(StringIO(text_data))
     return list(reader)
 
-
 def save_csv_in_memory(rows: List[dict], fieldnames: List[str]) -> BytesIO:
-    """Takes a list of dictionaries + fieldnames -> CSV (in-memory)."""
     output = StringIO()
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(rows)
     return BytesIO(output.getvalue().encode("utf-8"))
 
-
-###############################################################################
-# 3) Fuzzy Merge + Classification Logic
-###############################################################################
 def fuzzy_name_merge_compass_phone(compass_data: List[dict], phone_data: List[dict]) -> List[dict]:
-    """
-    Example implementing some of the fuzzy name matching logic from stephenrun5.
-    Merges phone data into the compass data (by the best fuzzy match).
-    """
     if not compass_data:
         return []
 
-    # We'll detect columns that look like 'First Name' or 'Last Name'
-    # For simplicity, you can reuse your "categorize_columns" approach or do a simpler heuristic:
     compass_headers = list(compass_data[0].keys())
     phone_headers = list(phone_data[0].keys()) if phone_data else []
 
-    # Minimal approach: look for columns containing "first" or "last"
     def guess_columns(headers: List[str], name_type: str) -> List[str]:
         result = []
         for h in headers:
-            if name_type in ("first", "fname"):
-                if "first" in h.lower() or "fname" in h.lower():
+            hl = h.lower()
+            if name_type == "first":
+                if "first" in hl or "fname" in hl:
                     result.append(h)
-            elif name_type in ("last", "lname"):
-                if "last" in h.lower() or "lname" in h.lower():
+            elif name_type == "last":
+                if "last" in hl or "lname" in hl:
                     result.append(h)
             elif name_type == "email":
-                if "email" in h.lower():
+                if "email" in hl:
                     result.append(h)
         return result
 
     c_first = guess_columns(compass_headers, "first")
     c_last = guess_columns(compass_headers, "last")
     c_email = guess_columns(compass_headers, "email")
-
     p_first = guess_columns(phone_headers, "first")
     p_last = guess_columns(phone_headers, "last")
     p_email = guess_columns(phone_headers, "email")
@@ -298,44 +277,35 @@ def fuzzy_name_merge_compass_phone(compass_data: List[dict], phone_data: List[di
                 break
         return f"{f} {l}".strip()
 
-    # Build compass name dictionary
     compass_names = []
     for i, row in enumerate(compass_data):
         nm = get_name(row, c_first, c_last)
         compass_names.append((i, nm))
 
-    # We'll use an array for final output
     updated_compass = list(compass_data)
     appended = []
-
-    # Prepare a list of just the name strings for fuzzy matching
     all_names = [x[1] for x in compass_names]
 
     for phone_row in phone_data:
         phone_name = get_name(phone_row, p_first, p_last)
-        if not phone_name:  # no name => just append as new row
+        if not phone_name:
             new_row = dict.fromkeys(compass_headers, "")
             new_row["Changes Made"] = "Created new contact (no name in phone)."
             appended.append(new_row)
             continue
 
-        # Fuzzy match
         best = process.extractOne(phone_name, all_names, scorer=fuzz.WRatio)
-        if best and best[1] >= 90:  # match threshold
+        if best and best[1] >= 90:
             best_name = best[0]
-            # Find the index in compass_names
             match_idx = all_names.index(best_name)
             comp_idx = compass_names[match_idx][0]
-            # Merge emails from phone row into compass row
             changes = []
-            # get phone emails
             phone_emails = []
             for col in p_email:
                 val = phone_row.get(col, "").strip().lower()
                 if val:
                     phone_emails.append(val)
 
-            # get existing compass emails
             existing_emails = []
             for col in c_email:
                 val = updated_compass[comp_idx].get(col, "").strip().lower()
@@ -344,7 +314,6 @@ def fuzzy_name_merge_compass_phone(compass_data: List[dict], phone_data: List[di
 
             for em in phone_emails:
                 if em not in existing_emails:
-                    # fill first empty email col
                     for col in c_email:
                         if not updated_compass[comp_idx].get(col, "").strip():
                             updated_compass[comp_idx][col] = em
@@ -352,46 +321,39 @@ def fuzzy_name_merge_compass_phone(compass_data: List[dict], phone_data: List[di
                             existing_emails.append(em)
                             break
 
-            # If any email is a real estate domain => Category=Agent
             if is_real_estate_agent(phone_emails + existing_emails):
                 updated_compass[comp_idx]["Category"] = "Agent"
                 changes.append("Category=Agent")
 
             if changes:
                 updated_compass[comp_idx]["Changes Made"] = (
-                    updated_compass[comp_idx].get("Changes Made", "") + 
-                    f" FuzzyMatch {best[1]}%: " + "; ".join(changes)
+                    updated_compass[comp_idx].get("Changes Made", "")
+                    + f" FuzzyMatch {best[1]}%: "
+                    + "; ".join(changes)
                 )
         else:
-            # No fuzzy match => new row
             new_row = dict.fromkeys(compass_headers, "")
-            # copy first/last from phone
             for col in p_first:
                 new_row["First Name"] = phone_row[col].strip()
                 break
             for col in p_last:
                 new_row["Last Name"] = phone_row[col].strip()
                 break
-            # check if agent
             phone_emails = []
             for col in p_email:
                 val = phone_row.get(col, "").strip().lower()
                 if val:
                     phone_emails.append(val)
-
             if is_real_estate_agent(phone_emails):
                 new_row["Category"] = "Agent"
 
-            new_row["Changes Made"] = "No match in compass. Created new contact."
+            new_row["Changes Made"] = "No match. Created new contact."
             appended.append(new_row)
 
     return updated_compass + appended
 
-
 def classify_vendors_inplace(final_data: List[dict]):
-    """Mark row["Vendor Classification"] = "Vendor" if domain has vendor keywords."""
     for row in final_data:
-        # gather all emails
         row_emails = []
         for k, v in row.items():
             if "email" in k.lower() and v.strip():
@@ -400,20 +362,12 @@ def classify_vendors_inplace(final_data: List[dict]):
             row["Vendor Classification"] = "Vendor"
             row["Changes Made"] = row.get("Changes Made", "") + " | Classified as Vendor"
 
-
 def classify_clients_inplace(final_data: List[dict], addresses_df: pd.DataFrame):
-    """
-    For each contact, if we can build an address string that fuzzy-matches
-    anything in addresses_df => row["Client Classification"] = "Client".
-    We'll guess the columns for address from the row's keys.
-    """
-    # Make a single list of all extracted addresses (concatenated as strings)
     extracted_list = []
-    for idx, row_addr in addresses_df.iterrows():
+    for _, row_addr in addresses_df.iterrows():
         combo = f"{row_addr['Street Address']} {row_addr.get('Unit','')} {row_addr['City']} {row_addr['State']} {row_addr['Zip Code']}"
         extracted_list.append(" ".join(combo.split()))
 
-    # Identify columns that might contain address data
     possible_address_cols = []
     if final_data:
         for col in final_data[0].keys():
@@ -422,7 +376,6 @@ def classify_clients_inplace(final_data: List[dict], addresses_df: pd.DataFrame)
                 possible_address_cols.append(col)
 
     for row in final_data:
-        # build a single string
         parts = []
         for col in possible_address_cols:
             val = row.get(col, "").strip()
@@ -436,14 +389,8 @@ def classify_clients_inplace(final_data: List[dict], addresses_df: pd.DataFrame)
             row["Client Classification"] = "Client"
             row["Changes Made"] = row.get("Changes Made", "") + f" | Address matched {best[1]}% => Client"
 
-
 def classify_agents_inplace(final_data: List[dict]):
-    """
-    If any email belongs to brokerage => Category=Agent.
-    (You can also keep 'Non-Agent' if no match, as in your original code.)
-    """
     for row in final_data:
-        # gather all emails
         row_emails = []
         for k, v in row.items():
             if "email" in k.lower() and v.strip():
@@ -452,7 +399,6 @@ def classify_agents_inplace(final_data: List[dict]):
             row["Category"] = "Agent"
         else:
             row.setdefault("Category", "Non-Agent")
-
 
 ###############################################################################
 # 4) STREAMLIT APP
@@ -473,14 +419,11 @@ def main():
                                  accept_multiple_files=True)
 
     if st.button("Run Automation"):
-        logs = []
         if not compass_file:
             st.error("Please upload at least one Compass export CSV.")
             return
 
-        # -----------------------------
-        # (A) Extract addresses from MLS
-        # -----------------------------
+        # Extract addresses from MLS
         if mls_files:
             st.write("### Extracting addresses from MLS data...")
             addresses_df = extract_addresses_from_mls_files(mls_files)
@@ -491,12 +434,11 @@ def main():
         else:
             addresses_df = pd.DataFrame()
             st.warning("No MLS files provided; skipping address extraction.")
-        
+
         # Let user see or download extracted MLS addresses
         if not addresses_df.empty:
             st.subheader("Extracted MLS Addresses")
             st.dataframe(addresses_df)
-            # Offer CSV download
             extracted_csv = save_csv_in_memory(
                 addresses_df.to_dict("records"),
                 ["Street Address","Unit","City","State","Zip Code"]
@@ -508,40 +450,29 @@ def main():
                 mime="text/csv"
             )
 
-        # -----------------------------
-        # (B) Merge Compass + Phone(s)
-        # -----------------------------
+        # Merge Compass + Phone
         st.write("### Merging Compass + Phone data...")
         compass_data = load_csv_in_memory(compass_file)
-        all_phones_merged = compass_data  # start with compass
+        all_phones_merged = list(compass_data)
 
         if phone_files:
             for ph in phone_files:
                 phone_data = load_csv_in_memory(ph)
-                # fuzzy merge
                 all_phones_merged = fuzzy_name_merge_compass_phone(all_phones_merged, phone_data)
             st.success(f"Compass data size after phone merges: {len(all_phones_merged)}")
         else:
             st.info("No phone files provided; skipping phone merges.")
 
-        # Ensure "Changes Made" and other columns exist
         for row in all_phones_merged:
             row.setdefault("Changes Made", "")
 
-        # -----------------------------
-        # (C) Classify Agents, Vendors, Clients
-        # -----------------------------
+        # Classifications
         st.write("### Classifying Agents, Vendors, and Clients...")
-
-        # 1) Agent classification by brokerage domain
         classify_agents_inplace(all_phones_merged)
-        # 2) Vendor classification by vendor keywords
         classify_vendors_inplace(all_phones_merged)
-        # 3) Client classification by address match
         if not addresses_df.empty:
             classify_clients_inplace(all_phones_merged, addresses_df)
 
-        # Convert to DataFrame for display
         if all_phones_merged:
             final_df = pd.DataFrame(all_phones_merged)
             st.subheader("Final Merged + Classified Data")
@@ -550,7 +481,6 @@ def main():
             st.error("No final data to display!")
             return
 
-        # Prepare CSV for download
         final_fieldnames = list(final_df.columns)
         final_csv_bytes = save_csv_in_memory(all_phones_merged, final_fieldnames)
         st.download_button(
@@ -560,7 +490,6 @@ def main():
             mime="text/csv"
         )
         st.success("All done!")
-
 
 if __name__ == "__main__":
     main()
