@@ -13,6 +13,14 @@ from openai import OpenAI
 ###############################################################################
 # 0) SETUP: OPENAI KEY (from Streamlit secrets) + PAGE TITLE
 ###############################################################################
+# Global debug log list and helper function
+debug_logs = []
+
+def log_debug(message: str):
+    debug_logs.append(message)
+    # Optionally also print to console for local debugging:
+    print(message)
+
 st.set_page_config(page_title="Real Estate Automation")
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
