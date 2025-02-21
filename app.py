@@ -14,8 +14,8 @@ from rapidfuzz import process, fuzz
 # 0) SETUP: OPENAI KEY (from Streamlit secrets) + PAGE TITLE
 ###############################################################################
 st.set_page_config(page_title="Real Estate Automation")
-openai.api_key = st.secrets["OPENAI_API_KEY"]  # safer than hard-coding
-openai_client = openai.api_key
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+
 ###############################################################################
 # 1) ADDRESS EXTRACTION LOGIC (merged from AddressExtract.py, but adapted)
 ###############################################################################
@@ -82,42 +82,43 @@ def extract_text_from_excel(file_bytes: BytesIO) -> str:
 
 def extract_addresses_with_ai(text: str) -> List[dict]:
     """
-    Uses OpenAI to extract structured property addresses from unstructured text.
+    Uses the standard openai.ChatCompletion (>=1.0.0) to parse addresses
+    from unstructured text. We instruct GPT to return valid JSON with an
+    'addresses' list that follows address_schema.
     """
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a highly accurate data extraction assistant. "
-                "Your task is to extract all real estate addresses from unstructured text. "
-                "Ensure the addresses are correctly formatted and structured according to the provided schema. "
-                "If an address has a unit number, include it separately in the 'Unit' field. "
-                "Return all addresses in a structured list format inside an 'addresses' object."
-            )
-        },
-        {
-            "role": "user",
-            "content": (
-                "Extract all property addresses from the following text. "
-                "Ensure that the output strictly follows the JSON schema provided. "
-                "Text:\n\n"
-                f"{text}\n\n"
-                "Return ONLY valid addresses in JSON format."
-            )
-        }
-    ]
+    if not text.strip():
+        return []
 
-    response = openai_client.chat.completions.create(
-        model="gpt-4o",
-        messages=messages,
-        response_format={"type": "json_schema", "json_schema": address_schema},
-        temperature=0
-    )
+    # Incorporate the JSON schema into the system prompt
+    system_prompt = f"""You are a data extraction assistant. 
+Return valid JSON containing an 'addresses' list that follows this schema:
+{json.dumps(address_schema)}
+
+Do NOT include extraneous keys. If an address has a unit, it should be in the
+'Unit' field. Output must be valid JSON, with a top-level object containing an
+'addresses' array."""
+    
+    user_prompt = f"""Extract all property addresses from the text below:
+{text}
+
+Ensure your output strictly follows the 'addresses' schema above, in valid JSON.
+"""
 
     try:
-        structured_response = response.choices[0].message.content
-        parsed_data = json.loads(structured_response)
-        return parsed_data.get("addresses", [])  # Ensure 'addresses' key exists
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",  # or "gpt-3.5-turbo"
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0,
+        )
+        # The raw text from GPT
+        raw_content = response.choices[0].message["content"]
+
+        # Attempt to parse as JSON
+        data = json.loads(raw_content)
+        return data.get("addresses", [])
     except Exception as e:
         print(f"Error parsing AI response: {e}")
         return []
