@@ -122,11 +122,25 @@ def extract_addresses_with_ai(text: str) -> List[dict]:
     except Exception as e:
         print(f"Error calling GPT or parsing JSON: {e}")
         return []
+        
+def convert_csv_to_excel(file: BytesIO) -> BytesIO:
+    """Convert a CSV file (as BytesIO) to an Excel file (also as BytesIO)."""
+    try:
+        df = pd.read_csv(file)
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False)
+        output.seek(0)
+        return output
+    except Exception as e:
+        log_debug(f"Error converting CSV to Excel: {e}")
+        return None
+
 
 
 def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
     """
-    For each user-uploaded MLS file, parse text, call GPT, and aggregate addresses.
+    For each MLS file, extract text and use GPT to extract addresses.
     """
     all_addresses = []
 
@@ -134,30 +148,41 @@ def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
         filename = file.name
         ext = os.path.splitext(filename)[1].lower()
         st.info(f"Processing MLS file: {filename}")
-
-        # Extract text
+        log_debug(f"Processing file: {filename} (ext: {ext})")
+        
+        # For CSV files, convert them to Excel for better address extraction
         if ext == ".pdf":
             text = extract_text_from_pdf(file)
         elif ext == ".csv":
-            text = extract_text_from_csv(file)
+            log_debug("Converting CSV file to Excel format...")
+            converted_file = convert_csv_to_excel(file)
+            if converted_file is not None:
+                text = extract_text_from_excel(converted_file)
+            else:
+                log_debug("CSV conversion failed; skipping file.")
+                continue
         elif ext in [".xls", ".xlsx"]:
             text = extract_text_from_excel(file)
         else:
             st.warning(f"Skipping unsupported file format: {filename}")
+            log_debug(f"Skipped file: {filename}")
             continue
 
-        # DEBUG: print the extracted text
-        print(f"----- EXTRACTED TEXT FROM {filename} -----")
-        print(text)
-        print("-----------------------------------------")
+        log_debug(f"----- EXTRACTED TEXT FROM {filename} -----")
+        log_debug(text)
+        log_debug("-----------------------------------------")
 
-        # Send to GPT
         addresses = extract_addresses_with_ai(text)
+        log_debug(f"Extracted {len(addresses)} addresses from {filename}.")
         all_addresses.extend(addresses)
 
     if not all_addresses:
+        log_debug("No addresses extracted from any file.")
         return pd.DataFrame(columns=["Street Address", "Unit", "City", "State", "Zip Code"])
+    else:
+        log_debug(f"Total addresses extracted: {len(all_addresses)}")
     return pd.DataFrame(all_addresses)
+
 
 ###############################################################################
 # The rest: phone/compass merges + classifications
@@ -497,3 +522,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+    with st.expander("Debug Logs"):
+        for entry in debug_logs:
+            st.write(entry)
+
+
