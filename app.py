@@ -411,8 +411,8 @@ def main():
     st.subheader("Compass Export (exactly 1 CSV)")
     compass_file = st.file_uploader("Compass CSV", type=["csv"], accept_multiple_files=False)
 
-    st.subheader("Phone Export(s) (one or more CSVs)")
-    phone_files = st.file_uploader("Phone CSV Files", type=["csv"], accept_multiple_files=True)
+    st.subheader("Phone Export(s) (exactly 1 CSV)")
+    phone_files = st.file_uploader("Phone CSV Files", type=["csv"], accept_multiple_files=False)
 
     st.subheader("MLS Data (one or more) for Address Extraction (PDF, CSV, XLS, XLSX)")
     mls_files = st.file_uploader("MLS Data", 
