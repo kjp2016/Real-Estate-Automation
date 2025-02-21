@@ -85,6 +85,18 @@ def extract_text_from_excel(file_bytes: BytesIO) -> str:
                 collected.extend(df[col].dropna().astype(str).tolist())
     return "\n".join(collected)
 
+def chunk_dataframe(df: pd.DataFrame, chunk_size: int = 300) -> List[pd.DataFrame]:
+    """Splits a DataFrame into chunks of a given number of rows."""
+    return [df[i:i+chunk_size] for i in range(0, len(df), chunk_size)]
+
+def extract_text_from_dataframe_chunk(df_chunk: pd.DataFrame) -> str:
+    """Extracts text from a DataFrame chunk using your heuristic (only columns with address keywords)."""
+    collected = []
+    for col in df_chunk.columns:
+        if any(k in col.lower() for k in ["address", "property", "location"]):
+            collected.extend(df_chunk[col].dropna().astype(str).tolist())
+    return "\n".join(collected)
+
 def extract_addresses_with_ai(text: str) -> List[dict]:
     """
     Uses the developer docs style:
@@ -165,16 +177,23 @@ def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
             log_debug("Converting CSV file to Excel format...")
             converted_file = convert_csv_to_excel(file)
             if converted_file is not None:
-                text = extract_text_from_excel(converted_file)
+                df = pd.read_excel(converted_file)
+                if len(df) > 300:
+                    chunks = chunk_dataframe(df, 300)
+                    text = "\n".join([extract_text_from_dataframe_chunk(chunk) for chunk in chunks])
+                else:
+                    text = extract_text_from_dataframe_chunk(df)
             else:
                 log_debug("CSV conversion failed; skipping file.")
                 continue
         elif ext in [".xls", ".xlsx"]:
-            text = extract_text_from_excel(file)
-        else:
-            st.warning(f"Skipping unsupported file format: {filename}")
-            log_debug(f"Skipped file: {filename}")
-            continue
+            df = pd.read_excel(file)
+            if len(df) > 300:
+                chunks = chunk_dataframe(df, 300)
+                text = "\n".join([extract_text_from_dataframe_chunk(chunk) for chunk in chunks])
+            else:
+                text = extract_text_from_dataframe_chunk(df)
+
 
         log_debug(f"----- EXTRACTED TEXT FROM {filename} -----")
         log_debug(text)
