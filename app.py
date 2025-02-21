@@ -17,8 +17,7 @@ debug_logs = []
 
 def log_debug(message: str):
     debug_logs.append(message)
-    # Optionally also print to console for local debugging:
-    print(message)
+    print(message)  # This prints to the console (for local debugging)
 
 ###############################################################################
 # 0) SETUP: OPENAI KEY (from Streamlit secrets) + PAGE TITLE
