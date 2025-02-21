@@ -4,18 +4,17 @@ import csv
 import pdfplumber
 import pandas as pd
 import json
-import openai
 import re
 from typing import List, Dict
 from io import StringIO, BytesIO
 from rapidfuzz import process, fuzz
-
+from openai import OpenAI
 
 ###############################################################################
 # 0) SETUP: OPENAI KEY (from Streamlit secrets) + PAGE TITLE
 ###############################################################################
 st.set_page_config(page_title="Real Estate Automation")
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 ###############################################################################
 # 1) ADDRESS EXTRACTION LOGIC
@@ -80,49 +79,50 @@ def extract_text_from_excel(file_bytes: BytesIO) -> str:
 
 def extract_addresses_with_ai(text: str) -> List[dict]:
     """
-    Uses the standard openai.ChatCompletion to parse addresses from unstructured text.
-    We instruct GPT to return valid JSON with an 'addresses' list that follows address_schema.
+    Uses the developer docs style:
+      openai_client.chat.completions.create(...)
+      with 'response_format': {"type": "json_schema", ...}
     """
     if not text.strip():
-        print("DEBUG: The extracted text is empty or whitespace only.")
+        print("DEBUG: The extracted text is empty.")
         return []
 
-    # Incorporate the JSON schema into the system prompt
-    system_prompt = f"""You are a data extraction assistant.
-Return valid JSON containing an 'addresses' list that follows this schema:
-{json.dumps(address_schema)}
-
-Do NOT include extraneous keys. If an address has a unit, it should be in the
-'Unit' field. Output must be valid JSON, with a top-level object containing an
-'addresses' array.
-"""
-
-    user_prompt = f"""Extract all property addresses from the text below:
-{text}
-
-Ensure your output strictly follows the 'addresses' schema above, in valid JSON.
-"""
+    # Prepare the messages like in your old script or the doc's snippet
+    # For example, we do a 'developer' role and then a 'user' role:
+    messages = [
+        {
+            "role": "developer",
+            "content": (
+                "You extract real estate addresses into JSON data. "
+                "Adhere strictly to the given schema. "
+            )
+        },
+        {
+            "role": "user",
+            "content": text
+        }
+    ]
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",  # or "gpt-3.5-turbo" if you don't have GPT-4
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
+        # According to developer docs:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",  # or "gpt-4o-2024-08-06" if you have that model
+            messages=messages,
+            response_format={
+                "type": "json_schema",
+                "json_schema": address_schema
+            },
             temperature=0,
         )
-        raw_content = response.choices[0].message["content"]
-        # DEBUG: Print the raw GPT output to see what's returned
-        print("----- RAW GPT OUTPUT -----")
-        print(raw_content)
-        print("--------------------------")
 
-        data = json.loads(raw_content)
-        return data.get("addresses", [])
+        # The doc says we read response.choices[0].message.content
+        raw_json = response.choices[0].message.content
+        parsed = json.loads(raw_json)
+        return parsed.get("addresses", [])
     except Exception as e:
-        print(f"Error parsing AI response: {e}")
+        print(f"Error calling GPT or parsing JSON: {e}")
         return []
+
 
 def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
     """
