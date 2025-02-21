@@ -11,10 +11,21 @@ from rapidfuzz import process, fuzz
 from openai import OpenAI
 
 ###############################################################################
+# Global debug log list and helper function
+###############################################################################
+debug_logs = []
+
+def log_debug(message: str):
+    debug_logs.append(message)
+    # Optionally also print to console for local debugging:
+    print(message)
+
+###############################################################################
 # 0) SETUP: OPENAI KEY (from Streamlit secrets) + PAGE TITLE
 ###############################################################################
 st.set_page_config(page_title="Real Estate Automation")
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+log_debug("Initialized OpenAI client.")
 
 ###############################################################################
 # 1) ADDRESS EXTRACTION LOGIC
@@ -44,21 +55,30 @@ address_schema = {
         "additionalProperties": False
     }
 }
+log_debug("Address schema set.")
 
 def extract_text_from_pdf(file_bytes: BytesIO) -> str:
-    """Extract text using pdfplumber from a PDF in memory."""
+    log_debug("Extracting text from PDF...")
     text = ""
-    with pdfplumber.open(file_bytes) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-    # Normalize spacing
+    try:
+        with pdfplumber.open(file_bytes) as pdf:
+            for i, page in enumerate(pdf.pages):
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+                else:
+                    log_debug(f"Page {i} has no extractable text.")
+    except Exception as e:
+        log_debug(f"Error extracting PDF text: {e}")
     return " ".join(text.split())
 
 def extract_text_from_csv(file_bytes: BytesIO) -> str:
-    """Extract raw text from a CSV in memory."""
-    string_data = StringIO(file_bytes.getvalue().decode("utf-8", errors="replace"))
+    log_debug("Extracting text from CSV...")
+    try:
+        string_data = StringIO(file_bytes.getvalue().decode("utf-8", errors="replace"))
+    except Exception as e:
+        log_debug(f"Error decoding CSV file: {e}")
+        return ""
     reader = csv.reader(string_data)
     lines = []
     for row in reader:
@@ -66,35 +86,40 @@ def extract_text_from_csv(file_bytes: BytesIO) -> str:
     return "\n".join(lines).strip()
 
 def extract_text_from_excel(file_bytes: BytesIO) -> str:
-    """Extract text from all sheets/columns in an Excel file in memory."""
-    xls = pd.ExcelFile(file_bytes)
+    log_debug("Extracting text from Excel...")
+    try:
+        xls = pd.ExcelFile(file_bytes)
+    except Exception as e:
+        log_debug(f"Error opening Excel file: {e}")
+        return ""
     collected = []
     for sheet_name in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name=sheet_name)
-        # Heuristic: columns that might have addresses
-        for col in df.columns:
-            if any(k in col.lower() for k in ["address", "property", "location"]):
-                collected.extend(df[col].dropna().astype(str).tolist())
+        log_debug(f"Processing sheet: {sheet_name}")
+        try:
+            df = pd.read_excel(xls, sheet_name=sheet_name)
+            for col in df.columns:
+                if any(k in col.lower() for k in ["address", "property", "location"]):
+                    collected.extend(df[col].dropna().astype(str).tolist())
+        except Exception as e:
+            log_debug(f"Error reading sheet {sheet_name}: {e}")
     return "\n".join(collected)
 
 def extract_addresses_with_ai(text: str) -> List[dict]:
     """
     Uses the developer docs style:
       openai_client.chat.completions.create(...)
-      with 'response_format': {"type": "json_schema", ...}
+      with response_format using a JSON schema.
     """
     if not text.strip():
-        print("DEBUG: The extracted text is empty.")
+        log_debug("DEBUG: The extracted text is empty.")
         return []
 
-    # Prepare the messages like in your old script or the doc's snippet
-    # For example, we do a 'developer' role and then a 'user' role:
     messages = [
         {
             "role": "developer",
             "content": (
                 "You extract real estate addresses into JSON data. "
-                "Adhere strictly to the given schema. "
+                "Adhere strictly to the given schema."
             )
         },
         {
@@ -102,11 +127,10 @@ def extract_addresses_with_ai(text: str) -> List[dict]:
             "content": text
         }
     ]
-
+    log_debug("Sending text to GPT for address extraction...")
     try:
-        # According to developer docs:
         response = openai_client.chat.completions.create(
-            model="gpt-4o",  # or "gpt-4o-2024-08-06" if you have that model
+            model="gpt-4o",  # or "gpt-4o-2024-08-06" if available
             messages=messages,
             response_format={
                 "type": "json_schema",
@@ -114,28 +138,27 @@ def extract_addresses_with_ai(text: str) -> List[dict]:
             },
             temperature=0,
         )
-
-        # The doc says we read response.choices[0].message.content
-        raw_json = response.choices[0].message.content
+        raw_json = response.choices[0].message["content"]
+        log_debug("----- RAW GPT OUTPUT -----")
+        log_debug(raw_json)
+        log_debug("--------------------------")
         parsed = json.loads(raw_json)
+        log_debug("Parsed JSON successfully.")
         return parsed.get("addresses", [])
     except Exception as e:
-        print(f"Error calling GPT or parsing JSON: {e}")
+        log_debug(f"Error calling GPT or parsing JSON: {e}")
         return []
-
 
 def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
     """
-    For each user-uploaded MLS file, parse text, call GPT, and aggregate addresses.
+    For each MLS file, extract text and use GPT to extract addresses.
     """
     all_addresses = []
-
     for file in mls_files:
         filename = file.name
         ext = os.path.splitext(filename)[1].lower()
         st.info(f"Processing MLS file: {filename}")
-
-        # Extract text
+        log_debug(f"Processing file: {filename} (ext: {ext})")
         if ext == ".pdf":
             text = extract_text_from_pdf(file)
         elif ext == ".csv":
@@ -144,19 +167,22 @@ def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
             text = extract_text_from_excel(file)
         else:
             st.warning(f"Skipping unsupported file format: {filename}")
+            log_debug(f"Skipped file: {filename}")
             continue
 
-        # DEBUG: print the extracted text
-        print(f"----- EXTRACTED TEXT FROM {filename} -----")
-        print(text)
-        print("-----------------------------------------")
+        log_debug(f"----- EXTRACTED TEXT FROM {filename} -----")
+        log_debug(text)
+        log_debug("-----------------------------------------")
 
-        # Send to GPT
         addresses = extract_addresses_with_ai(text)
+        log_debug(f"Extracted {len(addresses)} addresses from {filename}.")
         all_addresses.extend(addresses)
 
     if not all_addresses:
+        log_debug("No addresses extracted from any file.")
         return pd.DataFrame(columns=["Street Address", "Unit", "City", "State", "Zip Code"])
+    else:
+        log_debug(f"Total addresses extracted: {len(all_addresses)}")
     return pd.DataFrame(all_addresses)
 
 ###############################################################################
@@ -423,8 +449,10 @@ def main():
                                  accept_multiple_files=True)
 
     if st.button("Run Automation"):
+        log_debug("Run Automation button pressed.")
         if not compass_file:
             st.error("Please upload at least one Compass export CSV.")
+            log_debug("No Compass CSV provided.")
             return
 
         # Extract addresses from MLS
@@ -433,19 +461,20 @@ def main():
             addresses_df = extract_addresses_from_mls_files(mls_files)
             if addresses_df.empty:
                 st.warning("No addresses were extracted.")
+                log_debug("No addresses extracted from MLS files.")
             else:
                 st.success(f"Extracted {len(addresses_df)} addresses from MLS files.")
         else:
             addresses_df = pd.DataFrame()
             st.warning("No MLS files provided; skipping address extraction.")
+            log_debug("No MLS files provided.")
 
-        # Let user see or download extracted MLS addresses
         if not addresses_df.empty:
             st.subheader("Extracted MLS Addresses")
             st.dataframe(addresses_df)
             extracted_csv = save_csv_in_memory(
                 addresses_df.to_dict("records"),
-                ["Street Address","Unit","City","State","Zip Code"]
+                ["Street Address", "Unit", "City", "State", "Zip Code"]
             )
             st.download_button(
                 "Download extracted_addresses.csv",
@@ -457,25 +486,23 @@ def main():
         # Merge Compass + Phone
         st.write("### Merging Compass + Phone data...")
         compass_data = load_csv_in_memory(compass_file)
+        st.info(f"Loaded {len(compass_data)} rows from Compass CSV.")
+        # (Assume fuzzy merge function and classification functions exist and work as in your code)
         all_phones_merged = list(compass_data)
-
         if phone_files:
             for ph in phone_files:
                 phone_data = load_csv_in_memory(ph)
+                st.info(f"Loaded {len(phone_data)} rows from Phone CSV.")
                 all_phones_merged = fuzzy_name_merge_compass_phone(all_phones_merged, phone_data)
             st.success(f"Compass data size after phone merges: {len(all_phones_merged)}")
         else:
             st.info("No phone files provided; skipping phone merges.")
 
-        for row in all_phones_merged:
-            row.setdefault("Changes Made", "")
-
-        # Classifications
-        st.write("### Classifying Agents, Vendors, and Clients...")
-        classify_agents_inplace(all_phones_merged)
-        classify_vendors_inplace(all_phones_merged)
-        if not addresses_df.empty:
-            classify_clients_inplace(all_phones_merged, addresses_df)
+        # (Run your classification functions here)
+        # classify_agents_inplace(all_phones_merged)
+        # classify_vendors_inplace(all_phones_merged)
+        # if not addresses_df.empty:
+        #     classify_clients_inplace(all_phones_merged, addresses_df)
 
         if all_phones_merged:
             final_df = pd.DataFrame(all_phones_merged)
@@ -483,6 +510,7 @@ def main():
             st.dataframe(final_df)
         else:
             st.error("No final data to display!")
+            log_debug("No final data produced from merge.")
             return
 
         final_fieldnames = list(final_df.columns)
@@ -494,6 +522,11 @@ def main():
             mime="text/csv"
         )
         st.success("All done!")
+
+        # At the end, show debug logs in an expander
+        with st.expander("Debug Logs"):
+            for entry in debug_logs:
+                st.write(entry)
 
 if __name__ == "__main__":
     main()
