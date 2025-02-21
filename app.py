@@ -13,14 +13,6 @@ from openai import OpenAI
 ###############################################################################
 # 0) SETUP: OPENAI KEY (from Streamlit secrets) + PAGE TITLE
 ###############################################################################
-# Global debug log list and helper function
-debug_logs = []
-
-def log_debug(message: str):
-    debug_logs.append(message)
-    # Optionally also print to console for local debugging:
-    print(message)
-
 st.set_page_config(page_title="Real Estate Automation")
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
@@ -85,18 +77,6 @@ def extract_text_from_excel(file_bytes: BytesIO) -> str:
                 collected.extend(df[col].dropna().astype(str).tolist())
     return "\n".join(collected)
 
-def chunk_dataframe(df: pd.DataFrame, chunk_size: int = 300) -> List[pd.DataFrame]:
-    """Splits a DataFrame into chunks of a given number of rows."""
-    return [df[i:i+chunk_size] for i in range(0, len(df), chunk_size)]
-
-def extract_text_from_dataframe_chunk(df_chunk: pd.DataFrame) -> str:
-    """Extracts text from a DataFrame chunk using your heuristic (only columns with address keywords)."""
-    collected = []
-    for col in df_chunk.columns:
-        if any(k in col.lower() for k in ["address", "property", "location"]):
-            collected.extend(df_chunk[col].dropna().astype(str).tolist())
-    return "\n".join(collected)
-
 def extract_addresses_with_ai(text: str) -> List[dict]:
     """
     Uses the developer docs style:
@@ -142,25 +122,11 @@ def extract_addresses_with_ai(text: str) -> List[dict]:
     except Exception as e:
         print(f"Error calling GPT or parsing JSON: {e}")
         return []
-        
-def convert_csv_to_excel(file: BytesIO) -> BytesIO:
-    """Convert a CSV file (as BytesIO) to an Excel file (also as BytesIO)."""
-    try:
-        df = pd.read_csv(file)
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False)
-        output.seek(0)
-        return output
-    except Exception as e:
-        log_debug(f"Error converting CSV to Excel: {e}")
-        return None
-
 
 
 def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
     """
-    For each MLS file, extract text and use GPT to extract addresses.
+    For each user-uploaded MLS file, parse text, call GPT, and aggregate addresses.
     """
     all_addresses = []
 
@@ -168,48 +134,30 @@ def extract_addresses_from_mls_files(mls_files) -> pd.DataFrame:
         filename = file.name
         ext = os.path.splitext(filename)[1].lower()
         st.info(f"Processing MLS file: {filename}")
-        log_debug(f"Processing file: {filename} (ext: {ext})")
-        
-        # For CSV files, convert them to Excel for better address extraction
+
+        # Extract text
         if ext == ".pdf":
             text = extract_text_from_pdf(file)
         elif ext == ".csv":
-            log_debug("Converting CSV file to Excel format...")
-            converted_file = convert_csv_to_excel(file)
-            if converted_file is not None:
-                df = pd.read_excel(converted_file)
-                if len(df) > 300:
-                    chunks = chunk_dataframe(df, 300)
-                    text = "\n".join([extract_text_from_dataframe_chunk(chunk) for chunk in chunks])
-                else:
-                    text = extract_text_from_dataframe_chunk(df)
-            else:
-                log_debug("CSV conversion failed; skipping file.")
-                continue
+            text = extract_text_from_csv(file)
         elif ext in [".xls", ".xlsx"]:
-            df = pd.read_excel(file)
-            if len(df) > 300:
-                chunks = chunk_dataframe(df, 300)
-                text = "\n".join([extract_text_from_dataframe_chunk(chunk) for chunk in chunks])
-            else:
-                text = extract_text_from_dataframe_chunk(df)
+            text = extract_text_from_excel(file)
+        else:
+            st.warning(f"Skipping unsupported file format: {filename}")
+            continue
 
+        # DEBUG: print the extracted text
+        print(f"----- EXTRACTED TEXT FROM {filename} -----")
+        print(text)
+        print("-----------------------------------------")
 
-        log_debug(f"----- EXTRACTED TEXT FROM {filename} -----")
-        log_debug(text)
-        log_debug("-----------------------------------------")
-
+        # Send to GPT
         addresses = extract_addresses_with_ai(text)
-        log_debug(f"Extracted {len(addresses)} addresses from {filename}.")
         all_addresses.extend(addresses)
 
     if not all_addresses:
-        log_debug("No addresses extracted from any file.")
         return pd.DataFrame(columns=["Street Address", "Unit", "City", "State", "Zip Code"])
-    else:
-        log_debug(f"Total addresses extracted: {len(all_addresses)}")
     return pd.DataFrame(all_addresses)
-
 
 ###############################################################################
 # The rest: phone/compass merges + classifications
@@ -276,10 +224,7 @@ def is_vendor(emails: List[str]) -> bool:
                 return True
     return False
 
-def load_csv_in_memory(file) -> List[Dict[str, str]]:
-    # If file doesn't have getvalue, wrap it in BytesIO.
-    if not hasattr(file, "getvalue"):
-        file = BytesIO(file)
+def load_csv_in_memory(file: BytesIO) -> List[Dict[str, str]]:
     text_data = file.getvalue().decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(StringIO(text_data))
     return list(reader)
@@ -549,8 +494,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    with st.expander("Debug Logs"):
-        for entry in debug_logs:
-            st.write(entry)
-
-
