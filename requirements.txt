@@ -1,5 +1,5 @@
 streamlit
-openai==1.63.0
+openai
 pdfplumber
 pandas
 rapidfuzz
