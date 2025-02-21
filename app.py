@@ -106,7 +106,7 @@ Ensure your output strictly follows the 'addresses' schema above, in valid JSON.
 
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4o",  # or "gpt-3.5-turbo"
+            model="gpt-4",  # or "gpt-3.5-turbo"
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -115,6 +115,8 @@ Ensure your output strictly follows the 'addresses' schema above, in valid JSON.
         )
         # The raw text from GPT
         raw_content = response.choices[0].message["content"]
+        # DEBUG: print or st.write the raw output to see what's coming back
+        print("RAW GPT OUTPUT:\n", raw_content)
 
         # Attempt to parse as JSON
         data = json.loads(raw_content)
