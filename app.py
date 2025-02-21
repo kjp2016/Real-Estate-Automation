@@ -224,7 +224,10 @@ def is_vendor(emails: List[str]) -> bool:
                 return True
     return False
 
-def load_csv_in_memory(file: BytesIO) -> List[Dict[str, str]]:
+def load_csv_in_memory(file) -> List[Dict[str, str]]:
+    # If file doesn't have getvalue, wrap it in BytesIO.
+    if not hasattr(file, "getvalue"):
+        file = BytesIO(file)
     text_data = file.getvalue().decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(StringIO(text_data))
     return list(reader)
