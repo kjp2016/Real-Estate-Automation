@@ -222,26 +222,14 @@ def is_vendor(emails: List[str]) -> bool:
                 return True
     return False
 
-def load_csv_in_memory(file) -> List[Dict[str, str]]:
+def load_csv_in_memory(file: BytesIO) -> List[Dict[str, str]]:
     """Reads a CSV file uploaded to Streamlit and converts it into a list of dictionaries."""
     try:
-        # If the file has a 'read' method, try to use it.
-        if hasattr(file, "read"):
-            try:
-                content = file.read()
-            except Exception as e:
-                st.error(f"Error reading file with read(): {e}")
-                content = file  # Fallback in case of error.
-        else:
-            # Otherwise, assume file is already a bytes object.
-            content = file
-
-        # If the content is in bytes, decode it.
-        if isinstance(content, (bytes, bytearray)):
-            content = content.decode("utf-8-sig", errors="replace")
-       
-        # Now wrap the decoded content in StringIO for csv.DictReader.
-        reader = csv.DictReader(StringIO(content))
+        # Decode the bytes content to a string
+        text_data = file.getvalue().decode("utf-8-sig", errors="replace")
+        
+        # Use StringIO to wrap the string content for csv.DictReader
+        reader = csv.DictReader(StringIO(text_data))
         return list(reader)
     except Exception as e:
         st.error(f"Error reading CSV file: {e}")
