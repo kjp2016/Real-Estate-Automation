@@ -74,10 +74,11 @@ def extract_text_from_pdf(file_bytes: BytesIO) -> str:
     return " ".join(text.split())
 
 
-def extract_text_from_csv(file_bytes: BytesIO) -> str:
-    """Extract raw text from an uploaded CSV file in memory."""
+def extract_text_from_csv(file) -> str:
+    """Extract raw text from an uploaded CSV file in memory using get_file_content."""
     try:
-        string_data = StringIO(file_bytes.getvalue().decode("utf-8", errors="replace"))
+        content = get_file_content(file)
+        string_data = StringIO(content)
         reader = csv.reader(string_data)
         return "\n".join(" ".join(row) for row in reader)
     except Exception as e:
