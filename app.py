@@ -224,23 +224,20 @@ def is_vendor(emails: List[str]) -> bool:
 def load_csv_in_memory(file) -> List[Dict[str, str]]:
     """Reads a CSV file uploaded to Streamlit and converts it into a list of dictionaries."""
     try:
-        # If the file is already bytes, decode it
-        if isinstance(file, bytes):
-            text_data = file.decode("utf-8-sig", errors="replace")
-        # If the file has a 'getvalue' method (e.g. BytesIO), use that
-        elif hasattr(file, "getvalue"):
-            text_data = file.getvalue().decode("utf-8-sig", errors="replace")
-        # Otherwise, try using the 'read' method
-        elif hasattr(file, "read"):
-            text_data = file.read().decode("utf-8-sig", errors="replace")
-        else:
-            raise ValueError("Uploaded file is of an unexpected type.")
-            
-        reader = csv.DictReader(StringIO(text_data))
+        # Read the entire file content.
+        content = file.read()
+        # Reset the file pointer so that subsequent calls can read the file if needed.
+        file.seek(0)
+        # If the content is in bytes, decode it.
+        if isinstance(content, bytes):
+            content = content.decode("utf-8-sig", errors="replace")
+        # Use StringIO to wrap the string content for csv.DictReader.
+        reader = csv.DictReader(StringIO(content))
         return list(reader)
     except Exception as e:
         st.error(f"Error reading CSV file: {e}")
         return []
+
 
 def save_csv_in_memory(rows: List[dict], fieldnames: List[str]) -> str:
     """Creates a CSV string from a list of dictionaries for Streamlit downloads."""
