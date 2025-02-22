@@ -17,7 +17,7 @@ st.set_page_config(page_title="Real Estate Automation")
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 ###############################################################################
-# 1) ADDRESS EXTRACTION LOGIC
+# ADDRESS EXTRACTION FUNCTIONS
 ###############################################################################
 address_schema = {
     "name": "address_schema",
@@ -45,82 +45,79 @@ address_schema = {
     }
 }
 
+def extract_addresses_with_ai_chunked(text: str, max_lines: int = 50) -> List[dict]:
+    """Splits text into chunks before sending to OpenAI to avoid truncation issues."""
+    lines = text.splitlines()
+    if len(lines) <= max_lines:
+        return extract_addresses_with_ai(text)
+    
+    addresses = []
+    for i in range(0, len(lines), max_lines):
+        chunk = "\n".join(lines[i:i+max_lines])
+        result = extract_addresses_with_ai(chunk)
+        addresses.extend(result)
+    
+    return addresses
+
 def extract_text_from_pdf(file_bytes: BytesIO) -> str:
-    """Extract text using pdfplumber from a PDF in memory."""
+    """Extract text from an uploaded PDF file in memory."""
     text = ""
-    with pdfplumber.open(file_bytes) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-    # Normalize spacing
+    try:
+        with pdfplumber.open(file_bytes) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+    except Exception as e:
+        st.error(f"Error processing PDF: {e}")
     return " ".join(text.split())
 
-def extract_text_from_csv(file_bytes: BytesIO) -> str:
-    """Extract raw text from a CSV in memory."""
-    string_data = StringIO(file_bytes.getvalue().decode("utf-8", errors="replace"))
-    reader = csv.reader(string_data)
-    lines = []
-    for row in reader:
-        lines.append(" ".join(row))
-    return "\n".join(lines).strip()
 
-def extract_text_from_excel(file_bytes: BytesIO) -> str:
-    """Extract text from all sheets/columns in an Excel file in memory."""
-    xls = pd.ExcelFile(file_bytes)
-    collected = []
-    for sheet_name in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name=sheet_name)
-        # Heuristic: columns that might have addresses
-        for col in df.columns:
-            if any(k in col.lower() for k in ["address", "property", "location"]):
-                collected.extend(df[col].dropna().astype(str).tolist())
-    return "\n".join(collected)
+def extract_text_from_csv(file_bytes: BytesIO) -> str:
+    """Extract raw text from an uploaded CSV file in memory."""
+    try:
+        string_data = StringIO(file_bytes.getvalue().decode("utf-8", errors="replace"))
+        reader = csv.reader(string_data)
+        return "\n".join(" ".join(row) for row in reader)
+    except Exception as e:
+        st.error(f"Error reading CSV: {e}")
+        return ""
+
 
 def extract_addresses_with_ai(text: str) -> List[dict]:
-    """
-    Uses the developer docs style:
-      openai_client.chat.completions.create(...)
-      with 'response_format': {"type": "json_schema", ...}
-    """
-    if not text.strip():
-        print("DEBUG: The extracted text is empty.")
-        return []
-
-    # Prepare the messages like in your old script or the doc's snippet
-    # For example, we do a 'developer' role and then a 'user' role:
     messages = [
         {
-            "role": "developer",
+            "role": "system",
             "content": (
-                "You extract real estate addresses into JSON data. "
-                "Adhere strictly to the given schema. "
+                "You are a highly accurate data extraction assistant. "
+                "Your task is to extract all real estate addresses from unstructured text. "
+                "Ensure the addresses are correctly formatted and structured according to the provided schema. "
+                "If an address has a unit number, include it separately in the 'Unit' field. "
+                "Return all addresses in a structured list format inside an 'addresses' object."
             )
         },
         {
             "role": "user",
-            "content": text
+            "content": (
+                "Extract all property addresses from the following text. "
+                "Ensure that the output strictly follows the JSON schema provided. "
+                "Text:\n\n" + text + "\n\n" +
+                "Return ONLY valid addresses in JSON format."
+            )
         }
     ]
-
     try:
-        # According to developer docs:
         response = openai_client.chat.completions.create(
-            model="gpt-4o",  # or "gpt-4o-2024-08-06" if you have that model
+            model="gpt-4o",
             messages=messages,
-            response_format={
-                "type": "json_schema",
-                "json_schema": address_schema
-            },
-            temperature=0,
+            response_format={"type": "json_schema", "json_schema": address_schema},
+            temperature=0
         )
-
-        # The doc says we read response.choices[0].message.content
-        raw_json = response.choices[0].message.content
-        parsed = json.loads(raw_json)
-        return parsed.get("addresses", [])
+        structured_response = response.choices[0].message.content
+        parsed_data = json.loads(structured_response)
+        return parsed_data.get("addresses", [])
     except Exception as e:
-        print(f"Error calling GPT or parsing JSON: {e}")
+        print(f"Error parsing AI response: {e}")
         return []
 
 
@@ -240,30 +237,25 @@ def fuzzy_name_merge_compass_phone(compass_data: List[dict], phone_data: List[di
     if not compass_data:
         return []
 
-    compass_headers = list(compass_data[0].keys())
-    phone_headers = list(phone_data[0].keys()) if phone_data else []
+    compass_names = [(i, f"{row.get('First Name', '').lower()} {row.get('Last Name', '').lower()}".strip()) for i, row in enumerate(compass_data)]
+    updated_compass = list(compass_data)
+    appended = []
+    all_names = [x[1] for x in compass_names]
 
-    def guess_columns(headers: List[str], name_type: str) -> List[str]:
-        result = []
-        for h in headers:
-            hl = h.lower()
-            if name_type == "first":
-                if "first" in hl or "fname" in hl:
-                    result.append(h)
-            elif name_type == "last":
-                if "last" in hl or "lname" in hl:
-                    result.append(h)
-            elif name_type == "email":
-                if "email" in hl:
-                    result.append(h)
-        return result
+    for phone_row in phone_data:
+        phone_name = f"{phone_row.get('First Name', '').lower()} {phone_row.get('Last Name', '').lower()}".strip()
+        if not phone_name:
+            appended.append({**phone_row, "Changes Made": "Created new contact (no name)"})
+            continue
 
-    c_first = guess_columns(compass_headers, "first")
-    c_last = guess_columns(compass_headers, "last")
-    c_email = guess_columns(compass_headers, "email")
-    p_first = guess_columns(phone_headers, "first")
-    p_last = guess_columns(phone_headers, "last")
-    p_email = guess_columns(phone_headers, "email")
+        best = process.extractOne(phone_name, all_names, scorer=fuzz.WRatio)
+        if best and best[1] >= 90:
+            match_idx = all_names.index(best[0])
+            updated_compass[match_idx]["Changes Made"] = f"Matched {best[1]}% - Merged with phone data"
+        else:
+            appended.append({**phone_row, "Changes Made": "No match - Created new contact"})
+
+    return updated_compass + appended
 
     def get_name(row: dict, first_cols: List[str], last_cols: List[str]) -> str:
         f = ""
@@ -400,6 +392,33 @@ def classify_agents_inplace(final_data: List[dict]):
             row["Category"] = "Agent"
         else:
             row.setdefault("Category", "Non-Agent")
+
+def classify_all(final_data: List[dict], extracted_addresses_df: pd.DataFrame):
+    extracted_addresses = [
+        f"{row['Street Address']} {row.get('Unit', '')} {row['City']} {row['State']} {row['Zip Code']}"
+        for _, row in extracted_addresses_df.iterrows()
+    ]
+
+    for row in final_data:
+        row_emails = [v.strip().lower() for k, v in row.items() if "email" in k.lower() and v.strip()]
+
+        if is_real_estate_agent(row_emails):
+            row["Category"] = "Agent"
+
+        if is_vendor(row_emails):
+            row["Vendor Classification"] = "Vendor"
+
+        address = " ".join([row.get(k, "").strip() for k in ["Street Address", "City", "State", "Zip Code"] if row.get(k)])
+        if fuzzy_address_match(address, extracted_addresses):
+            row["Client Classification"] = "Client"
+            row["Changes Made"] = row.get("Changes Made", "") + " | Address Matched => Client"
+
+
+def fuzzy_address_match(address: str, extracted_addresses: List[str], threshold: int = 90) -> bool:
+    if not address:
+        return False
+    best_match = process.extractOne(address, extracted_addresses, scorer=fuzz.WRatio)
+    return best_match and best_match[1] >= threshold
 
 ###############################################################################
 # 4) STREAMLIT APP
