@@ -221,17 +221,24 @@ def is_vendor(emails: List[str]) -> bool:
                 return True
     return False
 
-def load_csv_in_memory(file: BytesIO) -> List[Dict[str, str]]:
-    text_data = file.getvalue().decode("utf-8-sig", errors="replace")
-    reader = csv.DictReader(StringIO(text_data))
-    return list(reader)
+def load_csv_in_memory(file) -> List[Dict[str, str]]:
+    """Reads a CSV file uploaded to Streamlit and converts it into a list of dictionaries."""
+    try:
+        text_data = file.read().decode("utf-8-sig", errors="replace")  # Use .read() instead of .getvalue()
+        reader = csv.DictReader(StringIO(text_data))
+        return list(reader)
+    except Exception as e:
+        st.error(f"Error reading CSV file: {e}")
+        return []
 
-def save_csv_in_memory(rows: List[dict], fieldnames: List[str]) -> BytesIO:
+def save_csv_in_memory(rows: List[dict], fieldnames: List[str]) -> str:
+    """Creates a CSV string from a list of dictionaries for Streamlit downloads."""
     output = StringIO()
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(rows)
-    return BytesIO(output.getvalue().encode("utf-8"))
+    return output.getvalue()  # Returns a string
+
 
 def fuzzy_name_merge_compass_phone(compass_data: List[dict], phone_data: List[dict]) -> List[dict]:
     if not compass_data:
@@ -464,9 +471,9 @@ def main():
                 ["Street Address","Unit","City","State","Zip Code"]
             )
             st.download_button(
-                "Download extracted_addresses.csv",
-                data=extracted_csv,
-                file_name="extracted_addresses.csv",
+                "Download Final compass_merged.csv",
+                data=final_csv_bytes,  # Now a string, not BytesIO
+                file_name="compass_merged.csv",
                 mime="text/csv"
             )
 
