@@ -5,6 +5,7 @@ import pdfplumber
 import pandas as pd
 import json
 import re
+import io
 from typing import List, Dict
 from io import StringIO, BytesIO
 from rapidfuzz import process, fuzz
@@ -224,15 +225,25 @@ def is_vendor(emails: List[str]) -> bool:
 def load_csv_in_memory(file) -> List[Dict[str, str]]:
     """Reads a CSV file uploaded to Streamlit and converts it into a list of dictionaries."""
     try:
-        # Read the file's entire content
-        content = file.read()
-        # Reset the file pointer for later use
-        file.seek(0)
-        # If the content is bytes, decode it
+        # If file is a bytes object, use it directly.
+        if isinstance(file, bytes):
+            content = file
+        # If it has a read() method, then call it.
+        elif hasattr(file, "read"):
+            content = file.read()
+        else:
+            raise ValueError("Uploaded file is of an unexpected type.")
+        
+        # Reset the pointer if possible (for file-like objects)
+        if hasattr(file, "seek"):
+            file.seek(0)
+            
+        # Decode if the content is in bytes
         if isinstance(content, bytes):
             content = content.decode("utf-8-sig", errors="replace")
-        # Wrap the string content with StringIO for csv.DictReader
-        reader = csv.DictReader(StringIO(content))
+        
+        # Use io.StringIO to create a stream for csv.DictReader
+        reader = csv.DictReader(io.StringIO(content))
         return list(reader)
     except Exception as e:
         st.error(f"Error reading CSV file: {e}")
