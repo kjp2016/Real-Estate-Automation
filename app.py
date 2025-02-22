@@ -224,17 +224,18 @@ def is_vendor(emails: List[str]) -> bool:
 def load_csv_in_memory(file) -> List[Dict[str, str]]:
     """Reads a CSV file uploaded to Streamlit and converts it into a list of dictionaries."""
     try:
-        # Check if file is a BufferedReader or BytesIO
-        if isinstance(file, BytesIO):
+        # Ensure `file` is treated as BytesIO and read its content
+        if isinstance(file, (BytesIO, _io.BytesIO)):  # Handle different file types
             text_data = file.getvalue().decode("utf-8-sig", errors="replace")
         else:
-            text_data = file.read().decode("utf-8-sig", errors="replace")
+            text_data = file.read().decode("utf-8-sig", errors="replace")  # Ensure compatibility
 
         reader = csv.DictReader(StringIO(text_data))
         return list(reader)
     except Exception as e:
         st.error(f"Error reading CSV file: {e}")
         return []
+
 
 
 def save_csv_in_memory(rows: List[dict], fieldnames: List[str]) -> str:
