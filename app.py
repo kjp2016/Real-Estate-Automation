@@ -225,22 +225,27 @@ def is_vendor(emails: List[str]) -> bool:
 def load_csv_in_memory(file) -> List[Dict[str, str]]:
     """Reads a CSV file uploaded to Streamlit and converts it into a list of dictionaries."""
     try:
-        # If file is a bytes or bytearray, decode it directly.
-        if isinstance(file, (bytes, bytearray)):
-            content = file.decode("utf-8-sig", errors="replace")
+        # If the file has a 'read' method, try to use it.
+        if hasattr(file, "read"):
+            try:
+                content = file.read()
+            except Exception as e:
+                st.error(f"Error reading file with read(): {e}")
+                content = file  # Fallback in case of error.
         else:
-            # Otherwise, assume it's a file-like object and use its read() method.
-            content = file.read()
-            # If the result is bytes, decode it.
-            if isinstance(content, (bytes, bytearray)):
-                content = content.decode("utf-8-sig", errors="replace")
-        # Wrap the decoded content in a StringIO for csv.DictReader.
+            # Otherwise, assume file is already a bytes object.
+            content = file
+
+        # If the content is in bytes, decode it.
+        if isinstance(content, (bytes, bytearray)):
+            content = content.decode("utf-8-sig", errors="replace")
+        
+        # Now wrap the decoded content in StringIO for csv.DictReader.
         reader = csv.DictReader(StringIO(content))
         return list(reader)
     except Exception as e:
         st.error(f"Error reading CSV file: {e}")
         return []
-
 
 def save_csv_in_memory(rows: List[dict], fieldnames: List[str]) -> str:
     """Creates a CSV string from a list of dictionaries for Streamlit downloads."""
