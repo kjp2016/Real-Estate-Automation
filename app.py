@@ -441,9 +441,7 @@ def main():
     phone_files = st.file_uploader("Phone CSV Files", type=["csv"], accept_multiple_files=False)
 
     st.subheader("MLS Data (one or more) for Address Extraction (PDF, CSV, XLS, XLSX)")
-    mls_files = st.file_uploader("MLS Data", 
-                                 type=["pdf","csv","xls","xlsx"],
-                                 accept_multiple_files=True)
+    mls_files = st.file_uploader("MLS Data", type=["pdf", "csv", "xls", "xlsx"], accept_multiple_files=True)
 
     if st.button("Run Automation"):
         if not compass_file:
@@ -451,6 +449,7 @@ def main():
             return
 
         # Extract addresses from MLS
+        addresses_df = pd.DataFrame()  # Default empty dataframe
         if mls_files:
             st.write("### Extracting addresses from MLS data...")
             addresses_df = extract_addresses_from_mls_files(mls_files)
@@ -458,9 +457,6 @@ def main():
                 st.warning("No addresses were extracted.")
             else:
                 st.success(f"Extracted {len(addresses_df)} addresses from MLS files.")
-        else:
-            addresses_df = pd.DataFrame()
-            st.warning("No MLS files provided; skipping address extraction.")
 
         # Let user see or download extracted MLS addresses
         if not addresses_df.empty:
@@ -468,19 +464,19 @@ def main():
             st.dataframe(addresses_df)
             extracted_csv = save_csv_in_memory(
                 addresses_df.to_dict("records"),
-                ["Street Address","Unit","City","State","Zip Code"]
+                ["Street Address", "Unit", "City", "State", "Zip Code"]
             )
             st.download_button(
-                "Download Final compass_merged.csv",
-                data=final_csv_bytes,  # Now a string, not BytesIO
-                file_name="compass_merged.csv",
+                "Download extracted_addresses.csv",
+                data=extracted_csv,
+                file_name="extracted_addresses.csv",
                 mime="text/csv"
             )
 
         # Merge Compass + Phone
         st.write("### Merging Compass + Phone data...")
         compass_data = load_csv_in_memory(compass_file)
-        all_phones_merged = list(compass_data)
+        all_phones_merged = list(compass_data)  # Initialize with Compass data
 
         if phone_files:
             for ph in phone_files:
@@ -500,23 +496,25 @@ def main():
         if not addresses_df.empty:
             classify_clients_inplace(all_phones_merged, addresses_df)
 
+        # Ensure `all_phones_merged` is not empty before proceeding
         if all_phones_merged:
             final_df = pd.DataFrame(all_phones_merged)
             st.subheader("Final Merged + Classified Data")
             st.dataframe(final_df)
+
+            final_fieldnames = list(final_df.columns)
+            final_csv_bytes = save_csv_in_memory(all_phones_merged, final_fieldnames)
+
+            st.download_button(
+                "Download Final compass_merged.csv",
+                data=final_csv_bytes,
+                file_name="compass_merged.csv",
+                mime="text/csv"
+            )
+            st.success("All done!")
         else:
             st.error("No final data to display!")
-            return
-
-        final_fieldnames = list(final_df.columns)
-        final_csv_bytes = save_csv_in_memory(all_phones_merged, final_fieldnames)
-        st.download_button(
-            "Download Final compass_merged.csv",
-            data=final_csv_bytes,
-            file_name="compass_merged.csv",
-            mime="text/csv"
-        )
-        st.success("All done!")
+            final_csv_bytes = ""  # Assign an empty string as fallback to prevent UnboundLocalError
 
 if __name__ == "__main__":
     main()
