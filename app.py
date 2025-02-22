@@ -239,7 +239,7 @@ def load_csv_in_memory(file) -> List[Dict[str, str]]:
         # If the content is in bytes, decode it.
         if isinstance(content, (bytes, bytearray)):
             content = content.decode("utf-8-sig", errors="replace")
-        
+       
         # Now wrap the decoded content in StringIO for csv.DictReader.
         reader = csv.DictReader(StringIO(content))
         return list(reader)
