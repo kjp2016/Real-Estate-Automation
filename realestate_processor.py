@@ -9,6 +9,8 @@ import pdfplumber
 import openai
 from rapidfuzz import process, fuzz
 from typing import List, Dict, Tuple
+import streamlit as st
+
 
 # ---------------------------
 # Configuration & API Key
