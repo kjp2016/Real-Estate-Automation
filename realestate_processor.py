@@ -13,7 +13,7 @@ from typing import List, Dict, Tuple
 # ---------------------------
 # Configuration & API Key
 # ---------------------------
-openai.api_key = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+openai_client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # ---------------------------
 # ADDRESS EXTRACTION FUNCTIONS
@@ -532,4 +532,5 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
     except Exception as e:
         if logger:
             logger(f"Error saving final merged CSV: {e}")
+
 
