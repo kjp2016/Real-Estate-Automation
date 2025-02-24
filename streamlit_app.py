@@ -45,12 +45,12 @@ def main():
                 compass_path = os.path.join(tmpdir, "compass.csv")
                 with open(compass_path, "wb") as f:
                     f.write(compass_file.getbuffer())
-
+    
                 # Save Phone file
                 phone_path = os.path.join(tmpdir, "phone.csv")
                 with open(phone_path, "wb") as f:
                     f.write(phone_file.getbuffer())
-
+    
                 # Save each MLS file
                 mls_paths = []
                 for i, mls_file in enumerate(mls_files, start=1):
@@ -59,7 +59,7 @@ def main():
                     with open(mls_path, "wb") as f:
                         f.write(mls_file.getbuffer())
                     mls_paths.append(mls_path)
-
+    
                 # Create an output directory in temp as well
                 output_dir = os.path.join(tmpdir, "output")
                 
@@ -71,35 +71,51 @@ def main():
                         output_dir=output_dir,
                         logger=logger
                     )
-
+    
                     st.success("Processing completed! Check logs below.")
                     
                     # Provide download links for the output CSV files if they exist
                     extracted_csv_path = os.path.join(output_dir, "extracted_addresses.csv")
                     merged_csv_path = os.path.join(output_dir, "compass_merged.csv")
-
-                    # Download button: extracted_addresses.csv
+    
+                    # Read CSVs into memory and store in session_state
+                    # so we can create multiple download buttons that survive re-runs
                     if os.path.exists(extracted_csv_path):
                         with open(extracted_csv_path, "rb") as f:
-                            st.download_button(
-                                label="Download Extracted Addresses CSV",
-                                data=f.read(),
-                                file_name="extracted_addresses.csv",
-                                mime="text/csv"
-                            )
-
-                    # Download button: compass_merged.csv
+                            st.session_state["extracted_csv_data"] = f.read()
+                    else:
+                        st.session_state["extracted_csv_data"] = None
+    
                     if os.path.exists(merged_csv_path):
                         with open(merged_csv_path, "rb") as f:
-                            st.download_button(
-                                label="Download Merged Compass CSV",
-                                data=f.read(),
-                                file_name="compass_merged.csv",
-                                mime="text/csv"
-                            )
-
+                            st.session_state["merged_csv_data"] = f.read()
+                    else:
+                        st.session_state["merged_csv_data"] = None
+    
                 except Exception as e:
                     st.error(f"An error occurred during processing: {e}")
+    
+    # Outside (below) the if-statement, show the download buttons
+    # if the data is still in session_state
+    
+    if "extracted_csv_data" in st.session_state and st.session_state["extracted_csv_data"]:
+        st.download_button(
+            label="Download Extracted Addresses CSV",
+            data=st.session_state["extracted_csv_data"],
+            file_name="extracted_addresses.csv",
+            mime="text/csv",
+            key="extracted_download"
+        )
+    
+    if "merged_csv_data" in st.session_state and st.session_state["merged_csv_data"]:
+        st.download_button(
+            label="Download Merged Compass CSV",
+            data=st.session_state["merged_csv_data"],
+            file_name="compass_merged.csv",
+            mime="text/csv",
+            key="merged_download"
+        )
+
 
     # Show the logs after the run
     if logs:
