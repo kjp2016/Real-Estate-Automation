@@ -601,7 +601,42 @@ def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str
         if fuzzy_address_match(address, extracted_addresses, threshold=90):
             row["Client Classification"] = "Client"
             row["Changes Made"] = row.get("Changes Made", "") + " | Classified as Client"
-
+def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
+    """
+    Updates the 'Groups' field for each contact based on their classification.
+    If the contact is classified as an Agent (Category == 'Agent') and the Groups field
+    does not include 'Agents', it appends it. The same applies for Vendor.
+    Any changes are appended to the 'Changes Made' field.
+    """
+    for row in final_data:
+        groups = row.get("Groups", "").strip()
+        changes_for_groups = []
+        
+        # Check Agent classification from Category field.
+        if row.get("Category", "").strip().lower() == "agent":
+            if "agents" not in groups.lower():
+                if groups:
+                    groups += ",Agents"
+                else:
+                    groups = "Agents"
+                changes_for_groups.append("Added Agents to Groups")
+        
+        # Check Vendor classification from Vendor Classification field.
+        if row.get("Vendor Classification", "").strip().lower() == "vendor":
+            if "vendors" not in groups.lower():
+                if groups:
+                    groups += ",Vendors"
+                else:
+                    groups = "Vendors"
+                changes_for_groups.append("Added Vendors to Groups")
+        
+        row["Groups"] = groups
+        if changes_for_groups:
+            current_changes = row.get("Changes Made", "").strip()
+            if current_changes:
+                row["Changes Made"] = current_changes + " | " + "; ".join(changes_for_groups)
+            else:
+                row["Changes Made"] = "; ".join(changes_for_groups)
 
 def process_files(compass_file: str, phone_file: str, mls_files: List[str], output_dir: str, logger=None):
     """
@@ -644,6 +679,9 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
     classify_agents(final_data, email_columns)
     classify_clients(final_data, address_columns, extracted_addresses)
     classify_vendors(final_data, email_columns)
+    
+    # Update the Groups field based on classification.
+    update_groups_with_classification(final_data)
 
     # Add new columns if missing
     fieldnames = list(final_data[0].keys())
