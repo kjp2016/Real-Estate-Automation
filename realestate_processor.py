@@ -638,6 +638,57 @@ def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
             else:
                 row["Changes Made"] = "; ".join(changes_for_groups)
 
+def export_updated_records(merged_file: str, import_output_dir: str, logger=None):
+    """
+    Reads the merged Compass CSV, filters out only the records that have been updated 
+    (i.e. where "Changes Made" is not "No changes made."), drops columns that should not be 
+    imported, and writes the results to one or more CSV files (max 2000 records each).
+    """
+    # Columns to exclude from the import file.
+    exclude_cols = {"Created At", "Last Contacted", "Changes Made", "Category", 
+                    "Agent Classification", "Client Classification", "Vendor Classification"}
+    
+    # Read the merged file
+    with open(merged_file, mode="r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    
+    # Filter rows that have updates. We assume a row is updated if "Changes Made"
+    # exists and is not "No changes made." (case-insensitive) and not blank.
+    updated_rows = [row for row in rows if row.get("Changes Made", "").strip().lower() not in {"", "no changes made."}]
+    
+    if logger:
+        logger(f"Found {len(updated_rows)} updated records for import.")
+    
+    if not updated_rows:
+        if logger:
+            logger("No updated records found. Nothing to export for Compass import.")
+        return
+
+    # Determine the final fieldnames for the import file:
+    # Use all columns from the merged file except those in exclude_cols.
+    all_fieldnames = rows[0].keys()
+    import_fieldnames = [col for col in all_fieldnames if col not in exclude_cols]
+    
+    # Split the updated rows into chunks of 2000 records each.
+    chunk_size = 2000
+    total_chunks = (len(updated_rows) + chunk_size - 1) // chunk_size
+    
+    # Ensure the output directory exists.
+    if not os.path.exists(import_output_dir):
+        os.makedirs(import_output_dir)
+    
+    for i in range(total_chunks):
+        chunk = updated_rows[i*chunk_size:(i+1)*chunk_size]
+        output_path = os.path.join(import_output_dir, f"compass_import_part{i+1}.csv")
+        with open(output_path, mode="w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=import_fieldnames)
+            writer.writeheader()
+            writer.writerows(chunk)
+        if logger:
+            logger(f"Exported {len(chunk)} records to {output_path}")
+
+
 def process_files(compass_file: str, phone_file: str, mls_files: List[str], output_dir: str, logger=None):
     """
     Orchestrates the entire flow:
