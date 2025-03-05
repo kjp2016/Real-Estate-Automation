@@ -256,6 +256,12 @@ def is_vendor(emails: List[str]) -> bool:
                 return True
     return False
 
+def normalize_phone(phone: str) -> str:
+    """Normalize a phone number by removing non-digit characters and leading '1' if present."""
+    digits = re.sub(r'\D', '', phone)
+    if len(digits) == 11 and digits.startswith('1'):
+        digits = digits[1:]
+    return digits
 
 def categorize_columns(headers: List[str]) -> Dict[str, List[str]]:
     categories = {
@@ -274,6 +280,8 @@ def categorize_columns(headers: List[str]) -> Dict[str, List[str]]:
             categories["company"].append(header)
         elif "email" in h_lower:
             categories["email"].append(header)
+        elif "phone" in h_lower:  # New condition to capture phone columns.
+            categories["phone"].append(header)
         elif any(x in h_lower for x in ["address", "street", "city", "zip", "state", "country"]):
             categories["address"].append(header)
     return categories
@@ -320,7 +328,7 @@ def merge_phone_into_compass(
 ) -> Tuple[Dict[str, str], List[str]]:
     changes = []
     
-    # Merge missing email addresses
+    # Merge missing email addresses (unchanged)
     phone_emails = [phone_row.get(col, "").strip().lower() for col in phone_cat_map["email"] if phone_row.get(col, "").strip()]
     existing_emails = {compass_row.get(col, "").strip().lower() for col in compass_cat_map["email"] if compass_row.get(col, "").strip()}
     for email in phone_emails:
@@ -332,16 +340,19 @@ def merge_phone_into_compass(
                     existing_emails.add(email)
                     break
 
-    # Merge missing phone numbers
+    # Merge missing phone numbers using normalization
     phone_numbers = [phone_row.get(col, "").strip() for col in phone_cat_map["phone"] if phone_row.get(col, "").strip()]
-    existing_phones = {compass_row.get(col, "").strip() for col in compass_cat_map["phone"] if compass_row.get(col, "").strip()}
-    for phone in phone_numbers:
-        if phone not in existing_phones:
+    # Normalize phone numbers from phone export
+    normalized_phone_numbers = [normalize_phone(p) for p in phone_numbers if p]
+    # Normalize existing phone numbers in Compass
+    existing_phones = {normalize_phone(compass_row.get(col, "").strip()) for col in compass_cat_map["phone"] if compass_row.get(col, "").strip()}
+    for original_phone, norm_phone in zip(phone_numbers, normalized_phone_numbers):
+        if norm_phone not in existing_phones:
             for col in compass_cat_map["phone"]:
                 if not compass_row.get(col, "").strip():
-                    compass_row[col] = phone
-                    changes.append(f"Phone->{col}: {phone}")
-                    existing_phones.add(phone)
+                    compass_row[col] = original_phone  # Retain original formatting if desired.
+                    changes.append(f"Phone->{col}: {original_phone}")
+                    existing_phones.add(norm_phone)
                     break
 
     # Update category based on email domains
