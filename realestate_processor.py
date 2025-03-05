@@ -732,7 +732,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
     update_groups_with_classification(final_data)
 
     # Add new columns if missing
-    fieldnames = list(final_data[0].keys())
+    fieldnames = list({key for row in final_data for key in row})
     extra_columns = ["Agent Classification", "Client Classification", "Vendor Classification", "Changes Made"]
     for col in extra_columns:
         if col not in fieldnames:
