@@ -319,6 +319,33 @@ def fuzzy_name_match(name_key: str, all_keys: List[str], threshold: int = 97) ->
         return (best[0], best[1])
     return (None, 0)
 
+
+def extract_phone_address_component(header: str) -> Tuple[str, str]:
+    """
+    Extracts the address component type and group identifier from a phone export header.
+    For example, 'Street 1 (Home Address)' returns ('street', 'home address').
+    If no group is found, 'default' is returned.
+    """
+    # Look for text inside parentheses to serve as the group identifier.
+    m = re.search(r'\(([^)]+)\)', header)
+    group = m.group(1).strip().lower() if m else "default"
+    header_lower = header.lower()
+    component = None
+    if "street" in header_lower or ("line" in header_lower and "1" in header_lower):
+        component = "street"
+    elif "line 2" in header_lower:
+        component = "street2"
+    elif "city" in header_lower:
+        component = "city"
+    elif "state" in header_lower:
+        component = "state"
+    elif "zip" in header_lower or "postal" in header_lower:
+        component = "zip"
+    elif "country" in header_lower:
+        component = "country"
+    return component, group
+
+
 def merge_address_into_compass(
     compass_row: Dict[str, str],
     phone_row: Dict[str, str],
@@ -327,29 +354,25 @@ def merge_address_into_compass(
 ) -> Tuple[Dict[str, str], List[str]]:
     changes = []
     
-    # 1. Extract address components from the phone record.
-    phone_addr = {}
+    # 1. Build phone address groups.
+    phone_addr_groups = {}  # group identifier -> {component: value}
     for col in phone_cat_map["address"]:
         val = phone_row.get(col, "").strip()
         if not val:
             continue
-        col_lower = col.lower()
-        if "street" in col_lower or ("line" in col_lower and "1" in col_lower):
-            phone_addr["street"] = val
-        elif "city" in col_lower:
-            phone_addr["city"] = val
-        elif "state" in col_lower:
-            phone_addr["state"] = val
-        elif "zip" in col_lower or "postal" in col_lower:
-            phone_addr["zip"] = val
-        elif "country" in col_lower:
-            phone_addr["country"] = val
-    if not phone_addr:
-        return compass_row, changes  # No address info to merge
-
+        component, group = extract_phone_address_component(col)
+        if not component:
+            continue
+        if group not in phone_addr_groups:
+            phone_addr_groups[group] = {}
+        phone_addr_groups[group][component] = val
+    
+    if not phone_addr_groups:
+        return compass_row, changes
+    
     # 2. Group Compass address columns by group identifier.
-    #    E.g., "Address Line 1" is group "1", "Address 2 Line 1" is group "2", etc.
-    groups = {}  # group_id -> dict of component_type -> column name
+    #    For example, "Address Line 1" becomes group "1" (default), "Address 2 Line 1" becomes group "2", etc.
+    compass_groups = {}
     for col in compass_cat_map["address"]:
         col_lower = col.lower()
         m = re.search(r'address\s*(\d*)', col_lower)
@@ -358,7 +381,7 @@ def merge_address_into_compass(
         if "line 1" in col_lower or ("street" in col_lower and "line" not in col_lower):
             component = "street"
         elif "line 2" in col_lower:
-            component = "street2"  # Optional additional line
+            component = "street2"
         elif "city" in col_lower:
             component = "city"
         elif "state" in col_lower:
@@ -367,45 +390,39 @@ def merge_address_into_compass(
             component = "zip"
         elif "country" in col_lower:
             component = "country"
-        if group_id not in groups:
-            groups[group_id] = {}
+        if group_id not in compass_groups:
+            compass_groups[group_id] = {}
         if component:
-            groups[group_id][component] = col
+            compass_groups[group_id][component] = col
 
-    # 3. Check if any existing group already contains the phone address.
-    #    (For simplicity, we compare the "street" component.)
-    found = False
-    for group_id, comp_dict in groups.items():
-        group_data = {}
-        for comp, col in comp_dict.items():
-            val = compass_row.get(col, "").strip()
-            if val:
-                group_data[comp] = val
-        # If a "street" is already present and matches phone_addr's street, assume address is already merged.
-        if "street" in phone_addr and "street" in group_data:
-            if phone_addr["street"].lower() == group_data["street"].lower():
-                found = True
+    # 3. For each phone address group, check if its address is already present.
+    #    We compare the "street" component (case-insensitive).
+    for phone_group, phone_addr in phone_addr_groups.items():
+        already_present = False
+        for group_id, comp_dict in compass_groups.items():
+            comp_street = compass_row.get(comp_dict.get("street", ""), "").strip().lower()
+            if "street" in phone_addr and comp_street and phone_addr["street"].lower() == comp_street:
+                already_present = True
                 break
-    if found:
-        return compass_row, changes  # Phone address already present
-
-    # 4. Otherwise, find the first completely empty address group.
-    target_group = None
-    for group_id, comp_dict in groups.items():
-        group_empty = all(not compass_row.get(col, "").strip() for col in comp_dict.values())
-        if group_empty:
-            target_group = group_id
-            break
-
-    if target_group is None:
-        # No completely empty group exists; in this version, we leave it unchanged.
-        return compass_row, changes
-
-    # 5. Fill the target group with phone address components.
-    for comp_type, col in groups[target_group].items():
-        if not compass_row.get(col, "").strip() and comp_type in phone_addr:
-            compass_row[col] = phone_addr[comp_type]
-            changes.append(f"Address Group {target_group} -> {col}: {phone_addr[comp_type]}")
+        if already_present:
+            continue  # Skip if this phone address is already merged.
+        
+        # 4. Find the first completely empty Compass group for a new address.
+        target_group = None
+        for group_id, comp_dict in compass_groups.items():
+            group_empty = all(not compass_row.get(col, "").strip() for col in comp_dict.values())
+            if group_empty:
+                target_group = group_id
+                break
+        if target_group is None:
+            # No empty group available; optionally, you could create new columns here.
+            continue
+        
+        # 5. Fill the target Compass group with the phone address components.
+        for comp_type, col in compass_groups[target_group].items():
+            if comp_type in phone_addr and not compass_row.get(col, "").strip():
+                compass_row[col] = phone_addr[comp_type]
+                changes.append(f"Address Group {target_group} -> {col}: {phone_addr[comp_type]}")
     
     return compass_row, changes
 
