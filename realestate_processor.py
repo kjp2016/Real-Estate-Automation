@@ -319,6 +319,75 @@ def fuzzy_name_match(name_key: str, all_keys: List[str], threshold: int = 97) ->
         return (best[0], best[1])
     return (None, 0)
 
+def merge_address_into_compass(
+    compass_row: Dict[str, str],
+    phone_row: Dict[str, str],
+    compass_cat_map: Dict[str, List[str]],
+    phone_cat_map: Dict[str, List[str]]
+) -> Tuple[Dict[str, str], List[str]]:
+    changes = []
+    
+    # 1. Extract address components from the phone record.
+    phone_addr = {}
+    for col in phone_cat_map["address"]:
+        val = phone_row.get(col, "").strip()
+        if not val:
+            continue
+        col_lower = col.lower()
+        if "street" in col_lower or ("line" in col_lower and "1" in col_lower):
+            phone_addr.setdefault("street", val)
+        elif "city" in col_lower:
+            phone_addr.setdefault("city", val)
+        elif "state" in col_lower:
+            phone_addr.setdefault("state", val)
+        elif "zip" in col_lower or "postal" in col_lower:
+            phone_addr.setdefault("zip", val)
+        elif "country" in col_lower:
+            phone_addr.setdefault("country", val)
+    if not phone_addr:
+        return compass_row, changes  # No address info to merge
+
+    # 2. Group Compass address columns by group identifier.
+    #    For example, "Address Line 1" will be group "1", while "Address 2 Line 1" will be group "2".
+    groups = {}  # group_id -> dict of component_type -> column name
+    for col in compass_cat_map["address"]:
+        col_lower = col.lower()
+        # Use regex to try to capture a group number after "address"
+        m = re.search(r'address\s*(\d*)', col_lower)
+        group_id = m.group(1) if m and m.group(1) else "1"
+        # Determine component type heuristically:
+        component = None
+        if "line 1" in col_lower or ("street" in col_lower and "line" not in col_lower):
+            component = "street"
+        elif "line 2" in col_lower:
+            component = "street2"  # Optional additional line
+        elif "city" in col_lower:
+            component = "city"
+        elif "state" in col_lower:
+            component = "state"
+        elif "zip" in col_lower or "postal" in col_lower:
+            component = "zip"
+        elif "country" in col_lower:
+            component = "country"
+        if group_id not in groups:
+            groups[group_id] = {}
+        if component:
+            groups[group_id][component] = col
+
+    # 3. For each address group in the Compass row, if the group is completely empty, fill it.
+    for group_id, comp_dict in groups.items():
+        # Check if every column in this group is empty in the compass_row.
+        group_empty = all(not compass_row.get(col, "").strip() for col in comp_dict.values())
+        if group_empty:
+            # For each expected component, fill in from phone_addr if available.
+            for comp_type, col in comp_dict.items():
+                if not compass_row.get(col, "").strip() and comp_type in phone_addr:
+                    compass_row[col] = phone_addr[comp_type]
+                    changes.append(f"Address Group {group_id} -> {col}: {phone_addr[comp_type]}")
+            # If you wish to only fill one empty group, you could break here.
+            # break
+    return compass_row, changes
+
 
 def merge_phone_into_compass(
     compass_row: Dict[str, str],
@@ -416,7 +485,9 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
             match_idx = compass_keys.index(best_key)
             matched_row = updated_compass[match_idx]
             merged, changes = merge_phone_into_compass(matched_row, pcontact, compass_cat_map, phone_cat_map)
-            merged["Changes Made"] = f"Matched {score}% | {'; '.join(changes) if changes else 'No fields updated.'}"
+            merged, addr_changes = merge_address_into_compass(merged, pcontact, compass_cat_map, phone_cat_map)
+            all_changes = changes + addr_changes
+            merged["Changes Made"] = f"Matched {score}% | {'; '.join(all_changes) if all_changes else 'No fields updated.'}"
             updated_compass[match_idx] = merged
         else:
             if logger:
