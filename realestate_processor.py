@@ -665,8 +665,8 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
         return
 
     # Determine final fieldnames: all columns except those in exclude_cols.
-    all_fieldnames = rows[0].keys()
-    import_fieldnames = [col for col in all_fieldnames if col not in exclude_cols]
+    all_fieldnames = {key for row in rows for key in row}
+    import_fieldnames = sorted([col for col in all_fieldnames if col not in exclude_cols])
     
     # Split the updated rows into chunks of 2000 records each.
     chunk_size = 2000
