@@ -11,14 +11,9 @@ from realestate_processor import process_files
 def main():
     st.title("Real Estate Data Processor (Streamlit)")
 
-    # We'll keep logs in a list
     logs = []
-
     def logger(message: str):
-        """Logger function to capture messages from the processor."""
         logs.append(message)
-        # Optionally, print them (helps in debugging locally):
-        # print(message)
 
     st.markdown("""
     This Streamlit app lets you:
@@ -32,25 +27,27 @@ def main():
     # FILE UPLOADS
     compass_file = st.file_uploader("Upload Compass Export CSV", type=["csv"])
     phone_file = st.file_uploader("Upload Phone Export CSV", type=["csv"])
-    mls_files = st.file_uploader("Upload MLS / Sales Activity Files (PDF, CSV, XLS, XLSX)", 
-                                 type=["pdf", "csv", "xls", "xlsx"], accept_multiple_files=True)
+    mls_files = st.file_uploader(
+        "Upload MLS / Sales Activity Files (PDF, CSV, XLS, XLSX)", 
+        type=["pdf", "csv", "xls", "xlsx"], 
+        accept_multiple_files=True
+    )
 
     if st.button("Run Automation"):
         if not compass_file or not phone_file or not mls_files:
             st.error("Please provide all required files: Compass CSV, Phone CSV, and at least one MLS file.")
         else:
-            # Use a temporary directory to store the uploaded files
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Save Compass file
                 compass_path = os.path.join(tmpdir, "compass.csv")
                 with open(compass_path, "wb") as f:
                     f.write(compass_file.getbuffer())
-    
+
                 # Save Phone file
                 phone_path = os.path.join(tmpdir, "phone.csv")
                 with open(phone_path, "wb") as f:
                     f.write(phone_file.getbuffer())
-    
+
                 # Save each MLS file
                 mls_paths = []
                 for i, mls_file in enumerate(mls_files, start=1):
@@ -59,11 +56,12 @@ def main():
                     with open(mls_path, "wb") as f:
                         f.write(mls_file.getbuffer())
                     mls_paths.append(mls_path)
-    
-                # Create an output directory in temp as well
+
+                # Create output directory in temp
                 output_dir = os.path.join(tmpdir, "output")
-                
+
                 try:
+                    # Run the main process
                     process_files(
                         compass_file=compass_path,
                         phone_file=phone_path,
@@ -71,33 +69,40 @@ def main():
                         output_dir=output_dir,
                         logger=logger
                     )
-    
                     st.success("Processing completed! Check logs below.")
-                    
-                    # Provide download links for the output CSV files if they exist
+
+                    # Provide links for the output CSV files if they exist
                     extracted_csv_path = os.path.join(output_dir, "extracted_addresses.csv")
                     merged_csv_path = os.path.join(output_dir, "compass_merged.csv")
-    
-                    # Read CSVs into memory and store in session_state
-                    # so we can create multiple download buttons that survive re-runs
+
+                    # Read each into memory
                     if os.path.exists(extracted_csv_path):
                         with open(extracted_csv_path, "rb") as f:
                             st.session_state["extracted_csv_data"] = f.read()
                     else:
                         st.session_state["extracted_csv_data"] = None
-    
+
                     if os.path.exists(merged_csv_path):
                         with open(merged_csv_path, "rb") as f:
                             st.session_state["merged_csv_data"] = f.read()
                     else:
                         st.session_state["merged_csv_data"] = None
-    
+
+                    # Now handle the compass import files
+                    import_dir = os.path.join(output_dir, "compass_import")
+                    st.session_state["import_files"] = []  # store (filename, data)
+                    if os.path.exists(import_dir):
+                        for filename in os.listdir(import_dir):
+                            if filename.lower().endswith(".csv"):
+                                fullpath = os.path.join(import_dir, filename)
+                                with open(fullpath, "rb") as f:
+                                    file_data = f.read()
+                                st.session_state["import_files"].append((filename, file_data))
+
                 except Exception as e:
                     st.error(f"An error occurred during processing: {e}")
-    
-    # Outside (below) the if-statement, show the download buttons
-    # if the data is still in session_state
-    
+
+    # Download buttons outside the if-statement
     if "extracted_csv_data" in st.session_state and st.session_state["extracted_csv_data"]:
         st.download_button(
             label="Download Extracted Addresses CSV",
@@ -106,7 +111,7 @@ def main():
             mime="text/csv",
             key="extracted_download"
         )
-    
+
     if "merged_csv_data" in st.session_state and st.session_state["merged_csv_data"]:
         st.download_button(
             label="Download Merged Compass CSV",
@@ -116,8 +121,19 @@ def main():
             key="merged_download"
         )
 
+    # Provide download links for compass_import_part*.csv (if any)
+    if "import_files" in st.session_state and st.session_state["import_files"]:
+        st.subheader("Compass Import File(s)")
+        for i, (filename, file_data) in enumerate(st.session_state["import_files"], start=1):
+            st.download_button(
+                label=f"Download {filename}",
+                data=file_data,
+                file_name=filename,
+                mime="text/csv",
+                key=f"import_download_{i}"
+            )
 
-    # Show the logs after the run
+    # Show logs
     if logs:
         st.subheader("Logs")
         for log_line in logs:
