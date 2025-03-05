@@ -364,10 +364,12 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
     compass_data = load_compass_csv(compass_file)
     phone_data = load_phone_csv(phone_file)
     if not compass_data:
-        if logger: logger("Compass CSV has no data.")
+        if logger: 
+            logger("Compass CSV has no data.")
         return
     if not phone_data:
-        if logger: logger("Phone CSV has no data.")
+        if logger: 
+            logger("Phone CSV has no data.")
         return
 
     compass_cat_map = categorize_columns(list(compass_data[0].keys()))
@@ -375,14 +377,13 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
 
     compass_keys = [build_name_key(row, compass_cat_map) for row in compass_data]
     updated_compass = list(compass_data)
-    appended_rows = []
 
+    # Iterate through phone contacts and only update matching Compass rows.
     for pcontact in phone_data:
         phone_name_key = build_name_key(pcontact, phone_cat_map)
         if not phone_name_key.strip():
-            new_row = {col: "" for col in compass_data[0].keys()}
-            new_row["Changes Made"] = "No name in phone data. Created new contact."
-            appended_rows.append(new_row)
+            if logger:
+                logger("Skipping phone contact with no name.")
             continue
 
         best_key, score = fuzzy_name_match(phone_name_key, compass_keys, threshold=97)
@@ -393,15 +394,13 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
             merged["Changes Made"] = f"Matched {score}% | {'; '.join(changes) if changes else 'No fields updated.'}"
             updated_compass[match_idx] = merged
         else:
-            new_row = {col: "" for col in compass_data[0].keys()}
-            new_row["First Name"] = extract_field(pcontact, phone_cat_map["first_name"])
-            new_row["Last Name"] = extract_field(pcontact, phone_cat_map["last_name"])
-            merged, changes = merge_phone_into_compass(new_row, pcontact, compass_cat_map, phone_cat_map)
-            new_row["Changes Made"] = f"No match. Created new contact. {'; '.join(changes) if changes else 'No fields updated.'}"
-            appended_rows.append(new_row)
+            if logger:
+                logger(f"Phone contact '{phone_name_key}' not found in Compass export; skipping.")
 
-    final_data = updated_compass + appended_rows
+    # Only use updated Compass data, without appending new rows.
+    final_data = updated_compass
 
+    # Ensure default values for certain fields.
     for row in final_data:
         row.setdefault("Changes Made", "No changes made.")
         row.setdefault("Category", "")
@@ -415,11 +414,6 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
         if col not in fieldnames:
             fieldnames.append(col)
 
-    # In case the code used this to remove "invalid" columns, it's not entirely necessary,
-    # but you can keep it if your original logic did so.
-    # invalid_keys = set(categorize_columns(fieldnames).keys())
-    # fieldnames = [col for col in fieldnames if col not in invalid_keys]
-
     try:
         with open(output_file, mode="w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -430,7 +424,6 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
     except Exception as e:
         if logger:
             logger(f"Error writing merged CSV: {e}")
-
 
 def load_extracted_addresses(address_file: str) -> List[str]:
     """Load only the 'Street Address' from the extracted addresses CSV."""
