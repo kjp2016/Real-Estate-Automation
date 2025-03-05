@@ -319,9 +319,10 @@ def merge_phone_into_compass(
     phone_cat_map: Dict[str, List[str]]
 ) -> Tuple[Dict[str, str], List[str]]:
     changes = []
+    
+    # Merge missing email addresses
     phone_emails = [phone_row.get(col, "").strip().lower() for col in phone_cat_map["email"] if phone_row.get(col, "").strip()]
     existing_emails = {compass_row.get(col, "").strip().lower() for col in compass_cat_map["email"] if compass_row.get(col, "").strip()}
-
     for email in phone_emails:
         if email not in existing_emails:
             for col in compass_cat_map["email"]:
@@ -331,6 +332,19 @@ def merge_phone_into_compass(
                     existing_emails.add(email)
                     break
 
+    # Merge missing phone numbers
+    phone_numbers = [phone_row.get(col, "").strip() for col in phone_cat_map["phone"] if phone_row.get(col, "").strip()]
+    existing_phones = {compass_row.get(col, "").strip() for col in compass_cat_map["phone"] if compass_row.get(col, "").strip()}
+    for phone in phone_numbers:
+        if phone not in existing_phones:
+            for col in compass_cat_map["phone"]:
+                if not compass_row.get(col, "").strip():
+                    compass_row[col] = phone
+                    changes.append(f"Phone->{col}: {phone}")
+                    existing_phones.add(phone)
+                    break
+
+    # Update category based on email domains
     if is_real_estate_agent(phone_emails + list(existing_emails)):
         compass_row["Category"] = "Agent"
         changes.append("Category=Agent")
