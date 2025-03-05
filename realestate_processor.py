@@ -335,27 +335,25 @@ def merge_address_into_compass(
             continue
         col_lower = col.lower()
         if "street" in col_lower or ("line" in col_lower and "1" in col_lower):
-            phone_addr.setdefault("street", val)
+            phone_addr["street"] = val
         elif "city" in col_lower:
-            phone_addr.setdefault("city", val)
+            phone_addr["city"] = val
         elif "state" in col_lower:
-            phone_addr.setdefault("state", val)
+            phone_addr["state"] = val
         elif "zip" in col_lower or "postal" in col_lower:
-            phone_addr.setdefault("zip", val)
+            phone_addr["zip"] = val
         elif "country" in col_lower:
-            phone_addr.setdefault("country", val)
+            phone_addr["country"] = val
     if not phone_addr:
         return compass_row, changes  # No address info to merge
 
     # 2. Group Compass address columns by group identifier.
-    #    For example, "Address Line 1" will be group "1", while "Address 2 Line 1" will be group "2".
+    #    E.g., "Address Line 1" is group "1", "Address 2 Line 1" is group "2", etc.
     groups = {}  # group_id -> dict of component_type -> column name
     for col in compass_cat_map["address"]:
         col_lower = col.lower()
-        # Use regex to try to capture a group number after "address"
         m = re.search(r'address\s*(\d*)', col_lower)
         group_id = m.group(1) if m and m.group(1) else "1"
-        # Determine component type heuristically:
         component = None
         if "line 1" in col_lower or ("street" in col_lower and "line" not in col_lower):
             component = "street"
@@ -374,19 +372,43 @@ def merge_address_into_compass(
         if component:
             groups[group_id][component] = col
 
-    # 3. For each address group in the Compass row, if the group is completely empty, fill it.
+    # 3. Check if any existing group already contains the phone address.
+    #    (For simplicity, we compare the "street" component.)
+    found = False
     for group_id, comp_dict in groups.items():
-        # Check if every column in this group is empty in the compass_row.
+        group_data = {}
+        for comp, col in comp_dict.items():
+            val = compass_row.get(col, "").strip()
+            if val:
+                group_data[comp] = val
+        # If a "street" is already present and matches phone_addr's street, assume address is already merged.
+        if "street" in phone_addr and "street" in group_data:
+            if phone_addr["street"].lower() == group_data["street"].lower():
+                found = True
+                break
+    if found:
+        return compass_row, changes  # Phone address already present
+
+    # 4. Otherwise, find the first completely empty address group.
+    target_group = None
+    for group_id, comp_dict in groups.items():
         group_empty = all(not compass_row.get(col, "").strip() for col in comp_dict.values())
         if group_empty:
-            # For each expected component, fill in from phone_addr if available.
-            for comp_type, col in comp_dict.items():
-                if not compass_row.get(col, "").strip() and comp_type in phone_addr:
-                    compass_row[col] = phone_addr[comp_type]
-                    changes.append(f"Address Group {group_id} -> {col}: {phone_addr[comp_type]}")
-            # If you wish to only fill one empty group, you could break here.
-            # break
+            target_group = group_id
+            break
+
+    if target_group is None:
+        # No completely empty group exists; in this version, we leave it unchanged.
+        return compass_row, changes
+
+    # 5. Fill the target group with phone address components.
+    for comp_type, col in groups[target_group].items():
+        if not compass_row.get(col, "").strip() and comp_type in phone_addr:
+            compass_row[col] = phone_addr[comp_type]
+            changes.append(f"Address Group {target_group} -> {col}: {phone_addr[comp_type]}")
+    
     return compass_row, changes
+
 
 
 def merge_phone_into_compass(
