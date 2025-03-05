@@ -643,12 +643,18 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
         "Created At", "Last Contacted", "Changes Made", "Category", 
         "Agent Classification", "Client Classification", "Vendor Classification"
     }
+
+    # Read the merged CSV
     with open(merged_file, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
 
+        # IMPORTANT: capture the fieldnames in the original order
+        original_order = reader.fieldnames  # The list of columns in the same order as compass_merged.csv
+
+    # Filter only the rows that have changes
     updated_rows = [
-        row for row in rows 
+        row for row in rows
         if row.get("Changes Made", "").strip().lower() not in {"", "no changes made."}
     ]
 
@@ -660,27 +666,29 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
             logger("No updated records found. Nothing to export for Compass import.")
         return
 
-    # Build the full union of all columns from all rows
-    all_fieldnames = {key for row in rows for key in row}
-    import_fieldnames = sorted(col for col in all_fieldnames if col not in exclude_cols)
+    # Use the original_order, but exclude the columns you don't want
+    import_fieldnames = [col for col in original_order if col not in exclude_cols]
 
-    chunk_size = 2000
-    total_chunks = (len(updated_rows) + chunk_size - 1) // chunk_size
-
+    # Prepare the output directory
     if not os.path.exists(import_output_dir):
         os.makedirs(import_output_dir)
+
+    # Split updated_rows into chunks of 2000
+    chunk_size = 2000
+    total_chunks = (len(updated_rows) + chunk_size - 1) // chunk_size
 
     for i in range(total_chunks):
         chunk = updated_rows[i * chunk_size : (i + 1) * chunk_size]
         output_path = os.path.join(import_output_dir, f"compass_import_part{i+1}.csv")
         with open(output_path, "w", newline="", encoding="utf-8") as f:
-            # extrasaction="ignore" fixes the error
+            # Use extrasaction="ignore" to avoid KeyErrors
             writer = csv.DictWriter(f, fieldnames=import_fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(chunk)
 
         if logger:
             logger(f"Exported {len(chunk)} records to {output_path}")
+
 
 
 def process_files(compass_file: str, phone_file: str, mls_files: List[str], output_dir: str, logger=None):
