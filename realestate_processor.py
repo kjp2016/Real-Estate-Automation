@@ -653,8 +653,7 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
         reader = csv.DictReader(f)
         rows = list(reader)
     
-    # Filter rows that have updates. We assume a row is updated if "Changes Made"
-    # exists and is not "No changes made." (case-insensitive) and not blank.
+    # Filter rows that have updates.
     updated_rows = [row for row in rows if row.get("Changes Made", "").strip().lower() not in {"", "no changes made."}]
     
     if logger:
@@ -665,8 +664,7 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
             logger("No updated records found. Nothing to export for Compass import.")
         return
 
-    # Determine the final fieldnames for the import file:
-    # Use all columns from the merged file except those in exclude_cols.
+    # Determine final fieldnames: all columns except those in exclude_cols.
     all_fieldnames = rows[0].keys()
     import_fieldnames = [col for col in all_fieldnames if col not in exclude_cols]
     
@@ -687,7 +685,6 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
             writer.writerows(chunk)
         if logger:
             logger(f"Exported {len(chunk)} records to {output_path}")
-
 
 def process_files(compass_file: str, phone_file: str, mls_files: List[str], output_dir: str, logger=None):
     """
@@ -751,5 +748,9 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
     except Exception as e:
         if logger:
             logger(f"Error saving final merged CSV: {e}")
+
+    # Export only the updated records into import files.
+    export_updated_records(merged_file, os.path.join(output_dir, "compass_import"), logger=logger)
+
 
 
