@@ -640,27 +640,25 @@ def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
 
 def export_updated_records(merged_file: str, import_output_dir: str, logger=None):
     """
-    Reads the merged Compass CSV, filters out only the records that have been updated 
-    (i.e. where "Changes Made" is not "No changes made."), drops columns that should not be 
-    imported, and writes the results to one or more CSV files (max 2000 records each).
+    Reads the final compass_merged.csv, keeps its column order,
+    filters out rows that have no updates, excludes certain columns,
+    and writes one or more CSV files (max 2000 records each).
     """
-    # Columns to exclude from the import file.
+    # Columns to exclude from the import file
     exclude_cols = {
-        "Created At", "Last Contacted", "Changes Made", "Category", 
+        "Created At", "Last Contacted", "Changes Made", "Category",
         "Agent Classification", "Client Classification", "Vendor Classification"
     }
 
-    # Read the merged file
+    # Read the merged CSV (the final one with new columns) in the exact order
     with open(merged_file, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
+        merged_fieldnames = reader.fieldnames or []  # The exact order in compass_merged
         rows = list(reader)
 
-        # The original column order from the merged CSV
-        original_order = reader.fieldnames or []  # In case fieldnames is None
-
-    # Filter rows that have updates
+    # Keep only rows that have changes
     updated_rows = [
-        row for row in rows 
+        row for row in rows
         if row.get("Changes Made", "").strip().lower() not in {"", "no changes made."}
     ]
 
@@ -672,32 +670,29 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
             logger("No updated records found. Nothing to export for Compass import.")
         return
 
-    # Filter out excluded columns, but keep the remaining columns in the original order.
-    import_fieldnames = [col for col in original_order if col not in exclude_cols]
+    # Filter out excluded columns, but keep the rest in the same order
+    import_fieldnames = [col for col in merged_fieldnames if col not in exclude_cols]
 
-    # Split the updated rows into chunks of 2000 records each
+    # Split into 2000-row chunks
     chunk_size = 2000
     total_chunks = (len(updated_rows) + chunk_size - 1) // chunk_size
 
+    # Ensure output directory exists
     if not os.path.exists(import_output_dir):
         os.makedirs(import_output_dir)
 
+    # Write each chunk to a separate CSV, preserving the column order
     for i in range(total_chunks):
-        chunk = updated_rows[i*chunk_size : (i+1)*chunk_size]
+        chunk = updated_rows[i * chunk_size : (i + 1) * chunk_size]
         output_path = os.path.join(import_output_dir, f"compass_import_part{i+1}.csv")
 
-        with open(output_path, "w", newline="", encoding="utf-8") as f:
-            # extrasaction="ignore" ensures that if a row has columns not in fieldnames,
-            # we won't raise an error. We'll just skip those columns.
-            writer = csv.DictWriter(f, fieldnames=import_fieldnames, extrasaction="ignore")
+        with open(output_path, mode="w", newline="", encoding="utf-8") as out_f:
+            writer = csv.DictWriter(out_f, fieldnames=import_fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(chunk)
 
         if logger:
             logger(f"Exported {len(chunk)} records to {output_path}")
-
-
-
 
 def process_files(compass_file: str, phone_file: str, mls_files: List[str], output_dir: str, logger=None):
     """
