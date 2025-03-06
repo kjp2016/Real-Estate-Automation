@@ -650,13 +650,9 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
         "Agent Classification", "Client Classification", "Vendor Classification"
     }
 
-    # Read the merged file
     with open(merged_file, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        rows = list(reader)
-
-        # The original column order from the merged CSV
-        original_order = reader.fieldnames or []  # In case fieldnames is None
+        original_order = reader.fieldnames or []
 
     # Filter rows that have updates
     updated_rows = [
@@ -703,7 +699,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # 1) Capture the original order of columns from the Compass CSV
+    # 1) Capture the original order from the Compass export.
     original_compass_data = load_compass_csv(compass_file)
     if not original_compass_data:
         if logger: 
@@ -714,27 +710,22 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
     extracted_addresses_file = os.path.join(output_dir, "extracted_addresses.csv")
     merged_file = os.path.join(output_dir, "compass_merged.csv")
 
-    if logger: 
-        logger("Starting address extraction...")
+    if logger: logger("Starting address extraction...")
     extract_and_save_addresses(mls_files, extracted_addresses_file, logger=logger)
-    if logger: 
-        logger("Address extraction completed.")
+    if logger: logger("Address extraction completed.")
 
-    if logger: 
-        logger("Integrating phone data into compass export...")
+    if logger: logger("Integrating phone data into compass export...")
     integrate_phone_into_compass(compass_file, phone_file, merged_file, logger=logger)
-    if logger: 
-        logger("Phone integration completed.")
+    if logger: logger("Phone integration completed.")
 
-    # Load the merged file for further classification
+    # Load the merged file for further classification.
     extracted_addresses = load_extracted_addresses(extracted_addresses_file)
     final_data = load_compass_csv(merged_file)
     if not final_data:
-        if logger: 
-            logger("No merged data found!")
+        if logger: logger("No merged data found!")
         return
 
-    # Perform classification and update groups
+    # Perform classification and update groups.
     compass_cat_map = categorize_columns(list(final_data[0].keys()))
     address_columns = compass_cat_map["address"]
     email_columns = compass_cat_map["email"]
@@ -749,14 +740,14 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
     classify_vendors(final_data, email_columns)
     update_groups_with_classification(final_data)
 
-    # 2) Build the final field order: use the original order plus new columns appended
+    # 2) Build the final header order: use the original order plus any new columns.
     new_columns = ["Agent Classification", "Client Classification", "Vendor Classification", "Changes Made"]
     final_fieldnames = list(original_field_order)
     for col in new_columns:
         if col not in final_fieldnames:
             final_fieldnames.append(col)
 
-    # Write the final merged data with the preserved column order
+    # Write the final merged file using the captured order.
     try:
         with open(merged_file, mode="w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=final_fieldnames)
@@ -768,6 +759,46 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
         if logger:
             logger(f"Error saving final merged CSV: {e}")
 
-    # 3) Now export the updated records using the same column order (minus excluded columns)
-    export_updated_records(merged_file, os.path.join(output_dir, "compass_import"), logger=logger)
+    # 3) Export updated records using the same column order (minus excluded columns).
+    export_updated_records_with_fieldnames(merged_file, os.path.join(output_dir, "compass_import"), final_fieldnames, logger=logger)
+
+def export_updated_records_with_fieldnames(merged_file: str, import_output_dir: str, final_fieldnames: List[str], logger=None):
+    # Define columns to exclude.
+    exclude_cols = {
+        "Created At", "Last Contacted", "Changes Made", "Category", 
+        "Agent Classification", "Client Classification", "Vendor Classification"
+    }
+    # Preserve the order by filtering the final_fieldnames.
+    import_fieldnames = [col for col in final_fieldnames if col not in exclude_cols]
+
+    with open(merged_file, mode="r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    # Keep only rows that have updates.
+    updated_rows = [row for row in rows if row.get("Changes Made", "").strip().lower() not in {"", "no changes made."}]
+
+    if logger:
+        logger(f"Found {len(updated_rows)} updated records for import.")
+
+    if not updated_rows:
+        if logger:
+            logger("No updated records found. Nothing to export for Compass import.")
+        return
+
+    # Write updated rows in chunks.
+    chunk_size = 2000
+    total_chunks = (len(updated_rows) + chunk_size - 1) // chunk_size
+    if not os.path.exists(import_output_dir):
+        os.makedirs(import_output_dir)
+    for i in range(total_chunks):
+        chunk = updated_rows[i * chunk_size : (i + 1) * chunk_size]
+        output_path = os.path.join(import_output_dir, f"compass_import_part{i+1}.csv")
+        with open(output_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=import_fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(chunk)
+        if logger:
+            logger(f"Exported {len(chunk)} records to {output_path}")
+
 
