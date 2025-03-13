@@ -699,19 +699,17 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
 
 def process_files(compass_file: str, phone_file: str, mls_files: List[str], output_dir: str, logger=None):
     """
-    Orchestrates the entire flow:
-      1) Extract addresses from provided MLS/sales files (if any)
-      2) Merge phone data into the Compass CSV
-      3) Classify agent, client, vendor, etc.
+    Orchestrates the entire flow and returns paths to processed files.
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     extracted_addresses_file = os.path.join(output_dir, "extracted_addresses.csv")
     merged_file = os.path.join(output_dir, "compass_merged.csv")
+    import_output_dir = os.path.join(output_dir, "compass_import")
 
     extracted_addresses = []
-    
+
     if mls_files:
         if logger:
             logger("Starting address extraction from MLS files...")
@@ -729,22 +727,15 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
     if logger:
         logger("Phone integration completed.")
 
-    # Now load the final merged file and classify further
     final_data = load_compass_csv(merged_file)
     if not final_data:
         if logger:
             logger("No merged data found!")
-        return
+        return None
 
     compass_cat_map = categorize_columns(list(final_data[0].keys()))
     address_columns = compass_cat_map["address"]
     email_columns = compass_cat_map["email"]
-
-    # Ensure these columns exist for classification
-    for row in final_data:
-        row.setdefault("Agent Classification", "")
-        row.setdefault("Client Classification", "")
-        row.setdefault("Vendor Classification", "")
 
     classify_agents(final_data, email_columns)
     
@@ -758,29 +749,13 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
 
     update_groups_with_classification(final_data)
 
-    # Preserve the original Compass export column order
-    try:
-        with open(compass_file, "r", encoding="utf-8-sig") as f:
-            reader = csv.reader(f)
-            original_order = next(reader)
-    except Exception as e:
-        if logger:
-            logger(f"Error reading original Compass file header: {e}")
-        original_order = list(final_data[0].keys())
-
-    extra_columns = ["Agent Classification", "Client Classification", "Vendor Classification", "Changes Made"]
-    final_fieldnames = original_order + [col for col in extra_columns if col not in original_order]
-
-    reordered_data = []
-    for row in final_data:
-        new_row = {key: row.get(key, "") for key in final_fieldnames}
-        reordered_data.append(new_row)
-
+    # Save final merged CSV
     try:
         with open(merged_file, mode="w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=final_fieldnames)
+            fieldnames = final_data[0].keys()
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows(reordered_data)
+            writer.writerows(final_data)
         if logger:
             logger(f"Final merged data with classifications written to {merged_file}")
     except Exception as e:
@@ -788,6 +763,13 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
             logger(f"Error saving final merged CSV: {e}")
 
     # Export only the updated records into import files.
-    export_updated_records(merged_file, os.path.join(output_dir, "compass_import"), logger=logger)
+    export_updated_records(merged_file, import_output_dir, logger=logger)
+
+    # Collect import file paths
+    import_files = [
+        os.path.join(import_output_dir, f) for f in os.listdir(import_output_dir)
+    ] if os.path.exists(import_output_dir) else []
+
+    return extracted_addresses_file, merged_file, import_files
 
 
