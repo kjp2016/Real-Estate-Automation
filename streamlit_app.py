@@ -24,6 +24,10 @@ def main():
     5. Download your processed files.
     """)
 
+    # Ensure session state variables are initialized
+    if "import_files" not in st.session_state:
+        st.session_state["import_files"] = []
+
     # FILE UPLOADS
     compass_file = st.file_uploader("Upload Compass Export CSV", type=["csv"])
     phone_file = st.file_uploader("Upload Phone Export CSV", type=["csv"])
@@ -41,11 +45,11 @@ def main():
                 compass_path = os.path.join(tmpdir, "compass.csv")
                 with open(compass_path, "wb") as f:
                     f.write(compass_file.getbuffer())
-    
+
                 phone_path = os.path.join(tmpdir, "phone.csv")
                 with open(phone_path, "wb") as f:
                     f.write(phone_file.getbuffer())
-    
+
                 mls_paths = []
                 if mls_files:
                     for i, mls_file in enumerate(mls_files, start=1):
@@ -54,9 +58,9 @@ def main():
                         with open(mls_path, "wb") as f:
                             f.write(mls_file.getbuffer())
                         mls_paths.append(mls_path)
-    
+
                 output_dir = os.path.join(tmpdir, "output")
-    
+
                 try:
                     # Run the main processing function
                     extracted_file, merged_file, import_files = process_files(
@@ -66,25 +70,26 @@ def main():
                         output_dir=output_dir,
                         logger=logger
                     )
-    
+
                     if extracted_file and os.path.exists(extracted_file):
                         with open(extracted_file, "rb") as f:
                             st.session_state["extracted_csv_data"] = f.read()
-    
+
                     if merged_file and os.path.exists(merged_file):
                         with open(merged_file, "rb") as f:
                             st.session_state["merged_csv_data"] = f.read()
-    
-                    if import_files:
-                        st.session_state["import_files"] = [
-                            (os.path.basename(f), open(f, "rb").read()) for f in import_files
-                        ]
-    
+
+                    # Open import files correctly and store them in session state
+                    st.session_state["import_files"] = []
+                    for f in import_files:
+                        with open(f, "rb") as file:
+                            st.session_state["import_files"].append((os.path.basename(f), file.read()))
+
                     st.success("Processing completed! Check logs below.")
-    
+
                 except Exception as e:
                     st.error(f"An error occurred: {e}")
-    
+
     # Display download buttons
     if "extracted_csv_data" in st.session_state:
         st.download_button(
@@ -93,7 +98,7 @@ def main():
             file_name="extracted_addresses.csv",
             mime="text/csv"
         )
-    
+
     if "merged_csv_data" in st.session_state:
         st.download_button(
             label="Download Merged Compass CSV",
@@ -101,8 +106,8 @@ def main():
             file_name="compass_merged.csv",
             mime="text/csv"
         )
-    
-    if "import_files" in st.session_state:
+
+    if "import_files" in st.session_state and st.session_state["import_files"]:
         st.subheader("Compass Import File(s)")
         for filename, file_data in st.session_state["import_files"]:
             st.download_button(
@@ -110,8 +115,6 @@ def main():
                 data=file_data,
                 file_name=filename,
                 mime="text/csv"
-            )
-
             )
 
     # Show logs
