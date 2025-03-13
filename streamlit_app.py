@@ -33,9 +33,10 @@ def main():
         accept_multiple_files=True
     )
 
+    # Ensure the button is inside the `main()` function
     if st.button("Run Automation"):
-        if not compass_file or not phone_file or not mls_files:
-            st.error("Please provide all required files: Compass CSV, Phone CSV, and at least one MLS file.")
+        if not compass_file or not phone_file:
+            st.error("Please provide Compass CSV and Phone CSV.")
         else:
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Save Compass file
@@ -48,59 +49,32 @@ def main():
                 with open(phone_path, "wb") as f:
                     f.write(phone_file.getbuffer())
 
-                # Save each MLS file
+                # Save MLS files if they exist
                 mls_paths = []
-                for i, mls_file in enumerate(mls_files, start=1):
-                    ext = os.path.splitext(mls_file.name)[1]
-                    mls_path = os.path.join(tmpdir, f"mls_{i}{ext}")
-                    with open(mls_path, "wb") as f:
-                        f.write(mls_file.getbuffer())
-                    mls_paths.append(mls_path)
+                if mls_files:
+                    for i, mls_file in enumerate(mls_files, start=1):
+                        ext = os.path.splitext(mls_file.name)[1]
+                        mls_path = os.path.join(tmpdir, f"mls_{i}{ext}")
+                        with open(mls_path, "wb") as f:
+                            f.write(mls_file.getbuffer())
+                        mls_paths.append(mls_path)
 
                 # Create output directory in temp
                 output_dir = os.path.join(tmpdir, "output")
 
                 try:
-                    # Run the main process
+                    # Run the main process (handles missing MLS files)
                     process_files(
                         compass_file=compass_path,
                         phone_file=phone_path,
-                        mls_files=mls_paths,
+                        mls_files=mls_paths,  # Pass an empty list if no MLS files
                         output_dir=output_dir,
                         logger=logger
                     )
                     st.success("Processing completed! Check logs below.")
 
-                    # Provide links for the output CSV files if they exist
-                    extracted_csv_path = os.path.join(output_dir, "extracted_addresses.csv")
-                    merged_csv_path = os.path.join(output_dir, "compass_merged.csv")
-
-                    # Read each into memory
-                    if os.path.exists(extracted_csv_path):
-                        with open(extracted_csv_path, "rb") as f:
-                            st.session_state["extracted_csv_data"] = f.read()
-                    else:
-                        st.session_state["extracted_csv_data"] = None
-
-                    if os.path.exists(merged_csv_path):
-                        with open(merged_csv_path, "rb") as f:
-                            st.session_state["merged_csv_data"] = f.read()
-                    else:
-                        st.session_state["merged_csv_data"] = None
-
-                    # Now handle the compass import files
-                    import_dir = os.path.join(output_dir, "compass_import")
-                    st.session_state["import_files"] = []  # store (filename, data)
-                    if os.path.exists(import_dir):
-                        for filename in os.listdir(import_dir):
-                            if filename.lower().endswith(".csv"):
-                                fullpath = os.path.join(import_dir, filename)
-                                with open(fullpath, "rb") as f:
-                                    file_data = f.read()
-                                st.session_state["import_files"].append((filename, file_data))
-
                 except Exception as e:
-                    st.error(f"An error occurred during processing: {e}")
+                    st.error(f"An error occurred: {e}")
 
     # Download buttons outside the if-statement
     if "extracted_csv_data" in st.session_state and st.session_state["extracted_csv_data"]:
@@ -138,7 +112,6 @@ def main():
         st.subheader("Logs")
         for log_line in logs:
             st.text(log_line)
-
 
 if __name__ == "__main__":
     main()
