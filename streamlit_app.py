@@ -33,23 +33,19 @@ def main():
         accept_multiple_files=True
     )
 
-    # Ensure the button is inside the `main()` function
     if st.button("Run Automation"):
         if not compass_file or not phone_file:
             st.error("Please provide Compass CSV and Phone CSV.")
         else:
             with tempfile.TemporaryDirectory() as tmpdir:
-                # Save Compass file
                 compass_path = os.path.join(tmpdir, "compass.csv")
                 with open(compass_path, "wb") as f:
                     f.write(compass_file.getbuffer())
-
-                # Save Phone file
+    
                 phone_path = os.path.join(tmpdir, "phone.csv")
                 with open(phone_path, "wb") as f:
                     f.write(phone_file.getbuffer())
-
-                # Save MLS files if they exist
+    
                 mls_paths = []
                 if mls_files:
                     for i, mls_file in enumerate(mls_files, start=1):
@@ -58,53 +54,64 @@ def main():
                         with open(mls_path, "wb") as f:
                             f.write(mls_file.getbuffer())
                         mls_paths.append(mls_path)
-
-                # Create output directory in temp
+    
                 output_dir = os.path.join(tmpdir, "output")
-
+    
                 try:
-                    # Run the main process (handles missing MLS files)
-                    process_files(
+                    # Run the main processing function
+                    extracted_file, merged_file, import_files = process_files(
                         compass_file=compass_path,
                         phone_file=phone_path,
-                        mls_files=mls_paths,  # Pass an empty list if no MLS files
+                        mls_files=mls_paths,
                         output_dir=output_dir,
                         logger=logger
                     )
+    
+                    if extracted_file and os.path.exists(extracted_file):
+                        with open(extracted_file, "rb") as f:
+                            st.session_state["extracted_csv_data"] = f.read()
+    
+                    if merged_file and os.path.exists(merged_file):
+                        with open(merged_file, "rb") as f:
+                            st.session_state["merged_csv_data"] = f.read()
+    
+                    if import_files:
+                        st.session_state["import_files"] = [
+                            (os.path.basename(f), open(f, "rb").read()) for f in import_files
+                        ]
+    
                     st.success("Processing completed! Check logs below.")
-
+    
                 except Exception as e:
                     st.error(f"An error occurred: {e}")
-
-    # Download buttons outside the if-statement
-    if "extracted_csv_data" in st.session_state and st.session_state["extracted_csv_data"]:
+    
+    # Display download buttons
+    if "extracted_csv_data" in st.session_state:
         st.download_button(
             label="Download Extracted Addresses CSV",
             data=st.session_state["extracted_csv_data"],
             file_name="extracted_addresses.csv",
-            mime="text/csv",
-            key="extracted_download"
+            mime="text/csv"
         )
-
-    if "merged_csv_data" in st.session_state and st.session_state["merged_csv_data"]:
+    
+    if "merged_csv_data" in st.session_state:
         st.download_button(
             label="Download Merged Compass CSV",
             data=st.session_state["merged_csv_data"],
             file_name="compass_merged.csv",
-            mime="text/csv",
-            key="merged_download"
+            mime="text/csv"
         )
-
-    # Provide download links for compass_import_part*.csv (if any)
-    if "import_files" in st.session_state and st.session_state["import_files"]:
+    
+    if "import_files" in st.session_state:
         st.subheader("Compass Import File(s)")
-        for i, (filename, file_data) in enumerate(st.session_state["import_files"], start=1):
+        for filename, file_data in st.session_state["import_files"]:
             st.download_button(
                 label=f"Download {filename}",
                 data=file_data,
                 file_name=filename,
-                mime="text/csv",
-                key=f"import_download_{i}"
+                mime="text/csv"
+            )
+
             )
 
     # Show logs
