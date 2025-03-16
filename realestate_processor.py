@@ -34,7 +34,8 @@ address_schema = {
                         "Unit": {"type": "string"},
                         "City": {"type": "string"},
                         "State": {"type": "string"},
-                        "Zip Code": {"type": "string"}
+                        "Zip Code": {"type": "string"},
+                        "Home Anniversary Date": {"type": "string"}  # New field added
                     },
                     "required": ["Street Address", "City", "State", "Zip Code"],
                     "additionalProperties": False
@@ -46,26 +47,23 @@ address_schema = {
     }
 }
 
-
 def extract_addresses_with_ai(text: str) -> List[dict]:
     messages = [
         {
             "role": "system",
             "content": (
                 "You are a highly accurate data extraction assistant. "
-                "Your task is to extract all real estate addresses from unstructured text. "
-                "Ensure the addresses are correctly formatted and structured according to the provided schema. "
-                "If an address has a unit number, include it separately in the 'Unit' field. "
-                "Return all addresses in a structured list format inside an 'addresses' object."
+                "Your task is to extract all real estate addresses and their corresponding close dates from unstructured text. "
+                "For each property, extract the property address and if available, the close date (which you will return as 'Home Anniversary Date'). "
+                "Ensure that the output strictly follows the provided JSON schema."
             )
         },
         {
             "role": "user",
             "content": (
-                "Extract all property addresses from the following text. "
-                "Ensure that the output strictly follows the JSON schema provided. "
-                "Text:\n\n" + text + "\n\n" +
-                "Return ONLY valid addresses in JSON format."
+                "Extract all property addresses and their close dates from the following text. "
+                "Return ONLY valid addresses in JSON format following the schema provided.\n\n"
+                "Text:\n\n" + text
             )
         }
     ]
@@ -176,13 +174,24 @@ def extract_and_save_addresses(file_paths: List[str], output_file: str, logger=N
                 logger(f"Unsupported file type for address extraction: {file_name}")
             continue
         all_extracted_addresses.extend(addresses)
+    
+    # Include the new field in fieldnames:
+    fieldnames = ["Street Address", "Unit", "City", "State", "Zip Code", "Home Anniversary Date"]
 
     try:
         with open(output_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["Street Address", "Unit", "City", "State", "Zip Code"])
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for address in all_extracted_addresses:
-                writer.writerow(address)
+                # Use .get() for the new field in case it is missing
+                writer.writerow({
+                    "Street Address": address.get("Street Address", ""),
+                    "Unit": address.get("Unit", ""),
+                    "City": address.get("City", ""),
+                    "State": address.get("State", ""),
+                    "Zip Code": address.get("Zip Code", ""),
+                    "Home Anniversary Date": address.get("Home Anniversary Date", "")
+                })
         if logger:
             logger(f"Extracted addresses saved to {output_file}")
     except Exception as e:
