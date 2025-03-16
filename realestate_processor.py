@@ -569,17 +569,13 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
         if logger:
             logger(f"Error writing merged CSV: {e}")
 
-def load_extracted_addresses(address_file: str) -> List[str]:
-    """Load only the 'Street Address' from the extracted addresses CSV."""
-    extracted_street_addresses = []
+def load_extracted_addresses(address_file: str) -> List[dict]:
+    extracted_records = []
     with open(address_file, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            street = row.get("Street Address", "").strip()
-            if street:
-                extracted_street_addresses.append(street)
-    return extracted_street_addresses
-
+            extracted_records.append(row)
+    return extracted_records
 
 def extract_street_addresses_from_row(row: Dict[str, str]) -> List[str]:
     """Extract values from a row whose header contains 'street' (ignoring case)."""
