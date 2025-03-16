@@ -603,13 +603,34 @@ def extract_address_from_row(row: Dict[str, str], address_columns: List[str]) ->
     return " ".join(parts)
 
 
-def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str], extracted_addresses: List[str]):
-    """Classify as 'Client' if row's address is fuzzily matched to addresses in the extracted list."""
+def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str], extracted_addresses: List[dict]):
+    """
+    Classify as 'Client' if row's address is fuzzily matched to addresses in the extracted list.
+    If a match is found, update the "Home Anniversary Date" in the Compass row from the MLS record.
+    """
+    # Prepare a lookup list of extracted records by their street address (lowercase)
+    extracted_lookup = {
+        record.get("Street Address", "").lower(): record
+        for record in extracted_addresses
+    }
+    
     for row in final_data:
         address = extract_address_from_row(row, address_columns)
-        if fuzzy_address_match(address, extracted_addresses, threshold=90):
+        if not address:
+            continue
+        # Use fuzzy matching on the street address component
+        best_match = process.extractOne(
+            address, list(extracted_lookup.keys()), scorer=fuzz.WRatio
+        )
+        if best_match and best_match[1] >= 90:
             row["Client Classification"] = "Client"
+            # Retrieve the matching MLS record
+            matched_record = extracted_lookup.get(best_match[0])
+            if matched_record and matched_record.get("Home Anniversary Date"):
+                row["Home Anniversary Date"] = matched_record["Home Anniversary Date"]
             row["Changes Made"] = row.get("Changes Made", "") + " | Classified as Client"
+
+            
 def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
     """
     Updates the 'Groups' field for each contact based on their classification.
