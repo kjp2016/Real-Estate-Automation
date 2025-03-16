@@ -771,14 +771,30 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
 
     classify_vendors(final_data, email_columns)
     update_groups_with_classification(final_data)
+    # Preserve the original Compass export column order and append new extra columns.
+    try:
+        with open(compass_file, "r", encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            original_order = next(reader)
+    except Exception as e:
+        if logger:
+            logger(f"Error reading original Compass file header: {e}")
+        original_order = list(final_data[0].keys())
+    
+    extra_columns = ["Category", "Changes Made", "Home Anniversary Date"]
+    final_fieldnames = original_order + [col for col in extra_columns if col not in original_order]
 
-    # Save final merged CSV
+    # Re-map each row to include every field in final_fieldnames.
+    reordered_data = []
+    for row in final_data:
+        new_row = {key: row.get(key, "") for key in final_fieldnames}
+        reordered_data.append(new_row)
+    
     try:
         with open(merged_file, mode="w", newline="", encoding="utf-8") as f:
-            fieldnames = final_data[0].keys()
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer = csv.DictWriter(f, fieldnames=final_fieldnames)
             writer.writeheader()
-            writer.writerows(final_data)
+            writer.writerows(reordered_data)
         if logger:
             logger(f"Final merged data with classifications written to {merged_file}")
     except Exception as e:
