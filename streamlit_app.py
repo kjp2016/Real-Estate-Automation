@@ -1,5 +1,3 @@
-# streamlit_app.py
-
 import streamlit as st
 import os
 import tempfile
@@ -17,9 +15,9 @@ def main():
 
     st.markdown("""
     This Streamlit app lets you:
-    1. Select a Compass Export CSV.
-    2. Select a Phone Export CSV.
-    3. Select multiple MLS/Sales Activity files (PDF, CSV, Excel).
+    1. Select a Compass Export CSV (required).
+    2. Optionally, select a Phone Export CSV.
+    3. Optionally, select one or more MLS/Sales Activity files (PDF, CSV, Excel).
     4. Run the data extraction, merging, and classification flow.
     5. Download your processed files.
     """)
@@ -30,25 +28,30 @@ def main():
 
     # FILE UPLOADS
     compass_file = st.file_uploader("Upload Compass Export CSV", type=["csv"])
-    phone_file = st.file_uploader("Upload Phone Export CSV", type=["csv"])
+    phone_file = st.file_uploader("Upload Phone Export CSV (optional)", type=["csv"])
     mls_files = st.file_uploader(
-        "Upload MLS / Sales Activity Files (PDF, CSV, XLS, XLSX)", 
-        type=["pdf", "csv", "xls", "xlsx"], 
+        "Upload MLS / Sales Activity Files (optional; PDF, CSV, XLS, XLSX)",
+        type=["pdf", "csv", "xls", "xlsx"],
         accept_multiple_files=True
     )
 
+    # Require at least Compass plus one of Phone or MLS
     if st.button("Run Automation"):
-        if not compass_file or not phone_file:
-            st.error("Please provide Compass CSV and Phone CSV.")
+        if not compass_file:
+            st.error("Please provide a Compass CSV.")
+        elif not phone_file and not mls_files:
+            st.error("Please provide at least one of Phone CSV or MLS files.")
         else:
             with tempfile.TemporaryDirectory() as tmpdir:
                 compass_path = os.path.join(tmpdir, "compass.csv")
                 with open(compass_path, "wb") as f:
                     f.write(compass_file.getbuffer())
 
-                phone_path = os.path.join(tmpdir, "phone.csv")
-                with open(phone_path, "wb") as f:
-                    f.write(phone_file.getbuffer())
+                phone_path = None
+                if phone_file:
+                    phone_path = os.path.join(tmpdir, "phone.csv")
+                    with open(phone_path, "wb") as f:
+                        f.write(phone_file.getbuffer())
 
                 mls_paths = []
                 if mls_files:
@@ -62,7 +65,8 @@ def main():
                 output_dir = os.path.join(tmpdir, "output")
 
                 try:
-                    # Run the main processing function
+                    # Run the main processing function.
+                    # Note: phone_path may be None.
                     extracted_file, merged_file, import_files = process_files(
                         compass_file=compass_path,
                         phone_file=phone_path,
