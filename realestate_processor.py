@@ -700,6 +700,11 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
 def process_files(compass_file: str, phone_file: str, mls_files: List[str], output_dir: str, logger=None):
     """
     Orchestrates the entire flow and returns paths to processed files.
+    
+    Variations:
+      - Compass + Phone + MLS: Runs phone integration and MLS extraction.
+      - Compass + MLS only: Skips phone integration (uses Compass as merged output).
+      - Compass + Phone only: Skips MLS extraction.
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -710,6 +715,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
 
     extracted_addresses = []
 
+    # Process MLS files if provided.
     if mls_files:
         if logger:
             logger("Starting address extraction from MLS files...")
@@ -721,11 +727,19 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
         if logger:
             logger("No MLS files provided. Skipping address extraction.")
 
-    if logger:
-        logger("Integrating phone data into Compass export...")
-    integrate_phone_into_compass(compass_file, phone_file, merged_file, logger=logger)
-    if logger:
-        logger("Phone integration completed.")
+    # If a phone file is provided, run phone integration.
+    if phone_file:
+        if logger:
+            logger("Integrating phone data into Compass export...")
+        integrate_phone_into_compass(compass_file, phone_file, merged_file, logger=logger)
+        if logger:
+            logger("Phone integration completed.")
+    else:
+        # No phone file: simply copy the Compass file as the merged output.
+        import shutil
+        shutil.copy(compass_file, merged_file)
+        if logger:
+            logger("No Phone file provided; using Compass file as merged output.")
 
     final_data = load_compass_csv(merged_file)
     if not final_data:
@@ -737,6 +751,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
     address_columns = compass_cat_map["address"]
     email_columns = compass_cat_map["email"]
 
+    # Run classification for agents using phone data (if available).
     classify_agents(final_data, email_columns)
     
     if extracted_addresses:
@@ -746,7 +761,6 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
             logger("Skipping client classification as no MLS addresses were extracted.")
 
     classify_vendors(final_data, email_columns)
-
     update_groups_with_classification(final_data)
 
     # Save final merged CSV
@@ -771,5 +785,3 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
     ] if os.path.exists(import_output_dir) else []
 
     return extracted_addresses_file, merged_file, import_files
-
-
