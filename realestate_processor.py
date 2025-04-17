@@ -158,7 +158,7 @@ def extract_addresses_from_excel(file_path: str, logger=None) -> List[dict]:
             if group_text.strip():
                 if logger:
                     logger(f"[DEBUG] Sending {sheet_name} data to OpenAI for address extraction")
-                chunk_addresses = extract_addresses_with_ai_chunked(group_text, max_lines=50, logger=logger)
+                chunk_addresses = extract_addresses_with_ai_chunked(group_text, max_lines=10, logger=logger)
                 extracted_addresses.extend(chunk_addresses)
 
     except Exception as e:
@@ -180,12 +180,12 @@ def extract_and_save_addresses(file_paths: List[str], output_file: str, logger=N
             if logger:
                 logger(f"Processing PDF for addresses: {file_name}")
             text = extract_text_from_pdf(file_path)
-            addresses = extract_addresses_with_ai_chunked(text, max_lines=50, logger=logger)
+            addresses = extract_addresses_with_ai_chunked(text, max_lines=10, logger=logger)
         elif ext == ".csv":
             if logger:
                 logger(f"Processing CSV for addresses: {file_name}")
             text = extract_text_from_csv(file_path)
-            addresses = extract_addresses_with_ai_chunked(text, max_lines=50, logger=logger)
+            addresses = extract_addresses_with_ai_chunked(text, max_lines=10, logger=logger)
         elif ext in [".xls", ".xlsx"]:
             if logger:
                 logger(f"Processing Excel for addresses: {file_name}")
