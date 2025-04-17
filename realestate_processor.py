@@ -100,6 +100,25 @@ def extract_addresses_with_ai_chunked(text: str, max_lines: int = 50, logger=Non
             addresses.extend(result)
         return addresses
 
+def extract_addresses_row_by_row(df: pd.DataFrame, logger=None) -> List[dict]:
+    extracted_addresses = []
+    for idx, row in df.iterrows():
+        row_text = []
+        for col in df.columns:
+            val = str(row[col]).strip()
+            if val and val.lower() != "nan":
+                row_text.append(f"{col}: {val}")
+        if row_text:
+            prompt_text = "\n".join(row_text)
+            if logger:
+                logger(f"[DEBUG] Extracting row {idx + 1}...")
+            try:
+                result = extract_addresses_with_ai(prompt_text)
+                extracted_addresses.extend(result)
+            except Exception as e:
+                if logger:
+                    logger(f"[ERROR] Row {idx + 1} extraction failed: {e}")
+    return extracted_addresses
 
 
 def extract_text_from_pdf(pdf_path: str) -> str:
@@ -137,36 +156,17 @@ def extract_addresses_from_excel(file_path: str, logger=None) -> List[dict]:
     extracted_addresses = []
     try:
         xls = pd.ExcelFile(file_path)
-        sheet_names = xls.sheet_names
-
-        # Process all sheets
-        for sheet_name in sheet_names:
+        for sheet_name in xls.sheet_names:
             df = pd.read_excel(xls, sheet_name)
             if logger:
                 logger(f"[DEBUG] Processing sheet: {sheet_name} with {len(df)} rows")
-
-            group_text = ""
-            for _, row in df.iterrows():
-                row_text = []
-                for col in df.columns:
-                    val = str(row[col]).strip()
-                    if val and val.lower() != "nan":
-                        row_text.append(f"{col}: {val}")
-                if row_text:
-                    group_text += "\n".join(row_text) + "\n---\n"
-
-            if group_text.strip():
-                if logger:
-                    logger(f"[DEBUG] Sending {sheet_name} data to OpenAI for address extraction")
-                chunk_addresses = extract_addresses_with_ai_chunked(group_text, max_lines=10, logger=logger)
-                extracted_addresses.extend(chunk_addresses)
-
+            sheet_addresses = extract_addresses_row_by_row(df, logger=logger)
+            extracted_addresses.extend(sheet_addresses)
     except Exception as e:
         if logger:
             logger(f"Error processing Excel {os.path.basename(file_path)}: {e}")
-        return []
-
     return extracted_addresses
+
 
 
 
@@ -180,12 +180,17 @@ def extract_and_save_addresses(file_paths: List[str], output_file: str, logger=N
             if logger:
                 logger(f"Processing PDF for addresses: {file_name}")
             text = extract_text_from_pdf(file_path)
-            addresses = extract_addresses_with_ai_chunked(text, max_lines=10, logger=logger)
+            addresses = extract_addresses_with_ai_chunked(text, max_lines=50, logger=logger)
         elif ext == ".csv":
             if logger:
                 logger(f"Processing CSV for addresses: {file_name}")
-            text = extract_text_from_csv(file_path)
-            addresses = extract_addresses_with_ai_chunked(text, max_lines=10, logger=logger)
+            try:
+                df = pd.read_csv(file_path)
+                addresses = extract_addresses_row_by_row(df, logger=logger)
+            except Exception as e:
+                if logger:
+                    logger(f"[ERROR] Failed to process CSV: {e}")
+                addresses = []
         elif ext in [".xls", ".xlsx"]:
             if logger:
                 logger(f"Processing Excel for addresses: {file_name}")
