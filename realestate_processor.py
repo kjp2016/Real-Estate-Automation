@@ -626,41 +626,43 @@ def extract_address_from_row(row: Dict[str, str], address_columns: List[str]) ->
 
 
 def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str], extracted_addresses: List[dict]):
-    """
-    Classify as 'Client' if a fuzzy match is found between any Compass address and an extracted address.
-    """
-    def normalize_address(addr: dict) -> str:
+    def normalize_extracted_address(addr: dict) -> str:
         return " ".join([
             addr.get("Street Address", "").strip(),
-            addr.get("Unit", "").strip(),
             addr.get("City", "").strip(),
-            addr.get("State", "").strip(),
-            addr.get("Zip Code", "").strip()
+            addr.get("State", "").strip()
         ]).lower()
 
-    # Build a lookup of normalized extracted addresses
+    def get_compass_address_groups(row: Dict[str, str]) -> List[str]:
+        """Build normalized address strings from Compass address groups."""
+        groups = []
+        for i in range(1, 7):
+            street = row.get(f"Address {i} Line 1", "").strip()
+            city = row.get(f"Address {i} City", "").strip()
+            state = row.get(f"Address {i} State", "").strip()
+            if street and city and state:
+                full = f"{street} {city} {state}".lower()
+                groups.append(full)
+        return groups
+
+    # Build lookup of normalized extracted addresses
     extracted_lookup = {
-        normalize_address(record): record for record in extracted_addresses
+        normalize_extracted_address(record): record for record in extracted_addresses
     }
     extracted_keys = list(extracted_lookup.keys())
 
     for row in final_data:
-        compass_address = extract_address_from_row(row, address_columns).lower()
-        if not compass_address:
-            continue
-
-        best_match = process.extractOne(compass_address, extracted_keys, scorer=fuzz.WRatio)
-        if best_match and best_match[1] >= 90:
-            matched_key = best_match[0]
-            matched_record = extracted_lookup[matched_key]
-            row["Client Classification"] = "Client"
-
-            # Update the Home Anniversary Date from matched MLS record
-            if matched_record.get("Home Anniversary Date"):
-                row["Home Anniversary Date"] = matched_record["Home Anniversary Date"]
-
-            row["Changes Made"] = row.get("Changes Made", "") + " | Classified as Client"
-
+        compass_addrs = get_compass_address_groups(row)
+        for compass_addr in compass_addrs:
+            best_match = process.extractOne(compass_addr, extracted_keys, scorer=fuzz.WRatio)
+            if best_match and best_match[1] >= 85:
+                matched_key = best_match[0]
+                matched_record = extracted_lookup[matched_key]
+                row["Client Classification"] = "Client"
+                if matched_record.get("Home Anniversary Date"):
+                    row["Home Anniversary Date"] = matched_record["Home Anniversary Date"]
+                row["Changes Made"] = row.get("Changes Made", "") + " | Classified as Client"
+                break
             
 def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
     """
