@@ -118,13 +118,19 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 def extract_text_from_csv(file_path: str) -> str:
     text = ""
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                text += " ".join(row) + "\n"
+        df = pd.read_csv(file_path)
+        # We'll format each row as a structured record
+        for _, row in df.iterrows():
+            row_text = []
+            for col in df.columns:
+                val = str(row[col]).strip()
+                if val and val.lower() != 'nan':
+                    row_text.append(f"{col}: {val}")
+            text += "\n".join(row_text) + "\n---\n"
     except Exception as e:
         print(f"Error reading CSV {file_path}: {e}")
     return text.strip()
+
 
 
 def extract_addresses_from_excel(file_path: str, logger=None) -> List[dict]:
