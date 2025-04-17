@@ -640,8 +640,8 @@ def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str
             street = row.get(f"Address {i} Line 1", "").strip()
             city = row.get(f"Address {i} City", "").strip()
             state = row.get(f"Address {i} State", "").strip()
-            if street and city and state:
-                full = f"{street} {city} {state}".lower()
+            if street:
+                full = f"{street} {city} {state}".lower().strip()
                 groups.append(full)
         return groups
 
