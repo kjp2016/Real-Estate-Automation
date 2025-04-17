@@ -15,7 +15,7 @@ import streamlit as st
 # ---------------------------
 # Configuration & API Key
 # ---------------------------
-openai_client = openai.OpenAI(api_key="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")
+openai_client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # ---------------------------
 # ADDRESS EXTRACTION FUNCTIONS
