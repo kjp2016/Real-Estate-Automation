@@ -622,29 +622,38 @@ def extract_address_from_row(row: Dict[str, str], address_columns: List[str]) ->
 
 def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str], extracted_addresses: List[dict]):
     """
-    Classify as 'Client' if row's address is fuzzily matched to addresses in the extracted list.
-    If a match is found, update the "Home Anniversary Date" in the Compass row from the MLS record.
+    Classify as 'Client' if a fuzzy match is found between any Compass address and an extracted address.
     """
-    # Prepare a lookup list of extracted records by their street address (lowercase)
+    def normalize_address(addr: dict) -> str:
+        return " ".join([
+            addr.get("Street Address", "").strip(),
+            addr.get("Unit", "").strip(),
+            addr.get("City", "").strip(),
+            addr.get("State", "").strip(),
+            addr.get("Zip Code", "").strip()
+        ]).lower()
+
+    # Build a lookup of normalized extracted addresses
     extracted_lookup = {
-        record.get("Street Address", "").lower(): record
-        for record in extracted_addresses
+        normalize_address(record): record for record in extracted_addresses
     }
-    
+    extracted_keys = list(extracted_lookup.keys())
+
     for row in final_data:
-        address = extract_address_from_row(row, address_columns)
-        if not address:
+        compass_address = extract_address_from_row(row, address_columns).lower()
+        if not compass_address:
             continue
-        # Use fuzzy matching on the street address component
-        best_match = process.extractOne(
-            address, list(extracted_lookup.keys()), scorer=fuzz.WRatio
-        )
+
+        best_match = process.extractOne(compass_address, extracted_keys, scorer=fuzz.WRatio)
         if best_match and best_match[1] >= 90:
+            matched_key = best_match[0]
+            matched_record = extracted_lookup[matched_key]
             row["Client Classification"] = "Client"
-            # Retrieve the matching MLS record
-            matched_record = extracted_lookup.get(best_match[0])
-            if matched_record and matched_record.get("Home Anniversary Date"):
+
+            # Update the Home Anniversary Date from matched MLS record
+            if matched_record.get("Home Anniversary Date"):
                 row["Home Anniversary Date"] = matched_record["Home Anniversary Date"]
+
             row["Changes Made"] = row.get("Changes Made", "") + " | Classified as Client"
 
             
