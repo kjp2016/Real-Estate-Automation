@@ -82,18 +82,24 @@ def extract_addresses_with_ai(text: str) -> List[dict]:
         return []
 
 
-def extract_addresses_with_ai_chunked(text: str, max_lines: int = 50) -> List[dict]:
-    """Break large text into chunks before sending to the AI for extraction."""
+def extract_addresses_with_ai_chunked(text: str, max_lines: int = 50, logger=None) -> List[dict]:
     lines = text.splitlines()
     if len(lines) <= max_lines:
+        if logger:
+            logger("[DEBUG] Sending full text to OpenAI")
         return extract_addresses_with_ai(text)
     else:
+        if logger:
+            logger(f"[DEBUG] Splitting text into {len(lines) // max_lines + 1} chunks")
         addresses = []
         for i in range(0, len(lines), max_lines):
             chunk = "\n".join(lines[i:i+max_lines])
+            if logger:
+                logger(f"[DEBUG] Sending chunk {i//max_lines + 1} to OpenAI")
             result = extract_addresses_with_ai(chunk)
             addresses.extend(result)
         return addresses
+
 
 
 def extract_text_from_pdf(pdf_path: str) -> str:
@@ -140,7 +146,7 @@ def extract_addresses_from_excel(file_path: str, logger=None) -> List[dict]:
                         group_text += "\n".join(df[col].dropna().astype(str).tolist()) + "\n"
             if logger:
                 logger(f"Processing a group of sheets from Excel file {os.path.basename(file_path)}")
-            chunk_addresses = extract_addresses_with_ai_chunked(group_text, max_lines=50)
+            chunk_addresses = extract_addresses_with_ai_chunked(group_text, max_lines=50, logger=logger)
             extracted_addresses.extend(chunk_addresses)
     except Exception as e:
         if logger:
@@ -159,12 +165,12 @@ def extract_and_save_addresses(file_paths: List[str], output_file: str, logger=N
             if logger:
                 logger(f"Processing PDF for addresses: {file_name}")
             text = extract_text_from_pdf(file_path)
-            addresses = extract_addresses_with_ai_chunked(text, max_lines=50)
+            addresses = extract_addresses_with_ai_chunked(text, max_lines=50, logger=logger)
         elif ext == ".csv":
             if logger:
                 logger(f"Processing CSV for addresses: {file_name}")
             text = extract_text_from_csv(file_path)
-            addresses = extract_addresses_with_ai_chunked(text, max_lines=50)
+            addresses = extract_addresses_with_ai_chunked(text, max_lines=50, logger=logger)
         elif ext in [".xls", ".xlsx"]:
             if logger:
                 logger(f"Processing Excel for addresses: {file_name}")
