@@ -655,7 +655,7 @@ def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str
         compass_addrs = get_compass_address_groups(row)
         for compass_addr in compass_addrs:
             best_match = process.extractOne(compass_addr, extracted_keys, scorer=fuzz.WRatio)
-            if best_match and best_match[1] >= 85:
+            if best_match and best_match[1] >= 93:
                 matched_key = best_match[0]
                 matched_record = extracted_lookup[matched_key]
                 row["Client Classification"] = "Client"
