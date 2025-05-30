@@ -725,7 +725,7 @@ def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str
 
     for row in final_data:
         # Skip if already classified as Client to avoid overriding or duplicate "Changes Made"
-        if row.get("Client Classification", "") == "Client":
+        if row.get("Client Classification", "") == "Client" and row.get("Home Anniversary Date", ""):
             continue
 
         compass_street_keys = get_compass_address_keys(row)
