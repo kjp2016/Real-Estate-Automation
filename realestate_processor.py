@@ -1,4 +1,4 @@
-# realestate_processor.pyMore actions
+# realestate_processor.py
 
 import os
 import csv
@@ -205,7 +205,7 @@ def extract_and_save_addresses(file_paths: List[str], output_file: str, logger=N
                 logger(f"Unsupported file type for address extraction: {file_name}")
             continue
         all_extracted_addresses.extend(addresses)
-
+    
     fieldnames = ["Street Address", "Unit", "City", "State", "Zip Code", "Home Anniversary Date"]
 
     try:
@@ -241,7 +241,7 @@ BROKERAGE_EMAIL_DOMAINS = {
     "atproperties.com", "christiesrealestate.com", "homesmart.com",
     "unitedrealestate.com", "pearsonsmithrealty.com", "virtualpropertiesrealty.com",
     "benchmarkrealtytn.com", "remax.com", "remaxgold.com", "elliman.com",
-
+    
     # Newly Added Domains
     "kleiers.com", "bouklisgroup.com", "triplemint.com", "bhsusa.com",
     "brownstonelistings.com", "kw.com", "dwellresidentialny.com", "evrealestate.com",
@@ -390,7 +390,7 @@ def merge_address_into_compass(
     phone_cat_map: Dict[str, List[str]]
 ) -> Tuple[Dict[str, str], List[str]]:
     changes = []
-
+    
     phone_addr_groups = {} 
     for col in phone_cat_map["address"]:
         val = phone_row.get(col, "").strip()
@@ -402,10 +402,10 @@ def merge_address_into_compass(
         if group not in phone_addr_groups:
             phone_addr_groups[group] = {}
         phone_addr_groups[group][component] = val
-
+    
     if not phone_addr_groups:
         return compass_row, changes
-
+    
     compass_groups = {}
     for col in compass_cat_map["address"]:
         col_lower = col.lower()
@@ -438,7 +438,7 @@ def merge_address_into_compass(
                 break
         if already_present:
             continue
-
+        
         target_group = None
         for group_id, comp_dict in compass_groups.items():
             group_empty = all(not compass_row.get(col, "").strip() for col in comp_dict.values())
@@ -447,12 +447,12 @@ def merge_address_into_compass(
                 break
         if target_group is None:
             continue
-
+        
         for comp_type, col in compass_groups[target_group].items():
             if comp_type in phone_addr and not compass_row.get(col, "").strip():
                 compass_row[col] = phone_addr[comp_type]
                 changes.append(f"Address Group {target_group} -> {col}: {phone_addr[comp_type]}")
-
+    
     return compass_row, changes
 
 
@@ -464,7 +464,7 @@ def merge_phone_into_compass(
     phone_cat_map: Dict[str, List[str]]
 ) -> Tuple[Dict[str, str], List[str]]:
     changes = []
-
+    
     phone_emails = [phone_row.get(col, "").strip().lower() for col in phone_cat_map["email"] if phone_row.get(col, "").strip()]
     existing_emails = {compass_row.get(col, "").strip().lower() for col in compass_cat_map["email"] if compass_row.get(col, "").strip()}
     for email in phone_emails:
@@ -540,7 +540,7 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
                  writer = csv.DictWriter(of, fieldnames=final_fieldnames)
                  writer.writeheader()
         return
-
+        
     if not phone_data:
         if logger: 
             logger("Phone CSV has no data. Proceeding without phone integration.")
@@ -591,7 +591,7 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
 
                 merged_row, changes = merge_phone_into_compass(matched_row_to_update.copy(), pcontact, compass_cat_map, phone_cat_map)
                 merged_row, addr_changes = merge_address_into_compass(merged_row, pcontact, compass_cat_map, phone_cat_map)
-
+                
                 all_changes = changes + addr_changes
                 current_changes_made = merged_row.get("Changes Made", "")
                 if not current_changes_made or current_changes_made == "No changes made.":
@@ -614,11 +614,11 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
 
     final_data = updated_compass
     original_headers = list(compass_data[0].keys())
-
+    
     # Define all columns that might be added or used.
     # These should align with columns used in export_updated_records and final output.
     extra_columns = ["Category", "Changes Made", "Home Anniversary Date", "Vendor Classification", "Client Classification"]
-
+    
     # Ensure all rows have these columns, defaulting to empty string or "No changes made."
     for row in final_data:
         for col in extra_columns:
@@ -626,7 +626,7 @@ def integrate_phone_into_compass(compass_file: str, phone_file: str, output_file
                 row.setdefault(col, "No changes made.")
             else:
                 row.setdefault(col, "")
-
+    
     # Email columns for agent classification might have changed if new ones were added from phone.
     # Re-categorize based on the potentially updated headers of final_data.
     if final_data: # ensure final_data is not empty
@@ -697,7 +697,7 @@ def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str
         return street
 
     # MODIFIED HERE: Get Compass addresses to use only Address Line 1 for matching
-    def get_compass_address_keys(row: Dict[str, str]) -> List[str]:Add commentMore actions
+    def get_compass_address_keys(row: Dict[str, str]) -> List[str]:
         """Build normalized address strings (street line only) from Compass address groups."""
         keys = []
         for i in range(1, 7): # Assuming up to 6 address fields in Compass
@@ -707,7 +707,6 @@ def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str
                 keys.append(street)
         return keys
 
-Add commentMore actions
     if not extracted_addresses: # If no MLS/extracted addresses, nothing to classify
         return
 
@@ -719,7 +718,7 @@ Add commentMore actions
              # If multiple extracted addresses have the same street key, last one wins.
              # Consider if this is desired or if they should be grouped.
             extracted_lookup[key] = record 
-
+    
     extracted_street_keys = list(extracted_lookup.keys())
     if not extracted_street_keys: # No valid street keys to match against
         return
@@ -731,18 +730,18 @@ Add commentMore actions
 
         compass_street_keys = get_compass_address_keys(row)
         matched_to_mls = False # Flag to ensure we only add "Classified as Client" once per row
-
+        
         for compass_key in compass_street_keys:
             if not compass_key: # Skip empty compass street keys
                 continue
-
+            
             # Perform fuzzy match against the list of extracted street keys
             best_match_tuple = process.extractOne(compass_key, extracted_street_keys, scorer=fuzz.WRatio)
-
+            
             if best_match_tuple and best_match_tuple[1] >= 93: # Using 93 as the threshold
                 matched_mls_key = best_match_tuple[0]
                 matched_record_from_mls = extracted_lookup[matched_mls_key] # Get the full MLS record
-
+                
                 if not matched_to_mls: # Apply changes only on the first match for this row
                     row["Client Classification"] = "Client"
                     current_changes = row.get("Changes Made", "")
@@ -758,9 +757,9 @@ Add commentMore actions
                         row["Home Anniversary Date"] = home_anniv_date_from_mls
                         # Optionally, log this specific change if it's separate from "Classified as Client"
                         # For simplicity, the "Classified as Client" implies this data might come with it.
-
+                
                 break # Found a suitable match for this Compass contact, move to next contact
-
+            
 def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
     """
     Updates the 'Groups' field for each contact based on their classification.
@@ -772,21 +771,21 @@ def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
         groups_str = row.get("Groups", "").strip()
         # Split by comma, strip whitespace from each group, filter out empty strings, and convert to set for easier checking
         current_groups_set = {g.strip().lower() for g in groups_str.split(',') if g.strip()}
-
+        
         changes_for_groups = []
-
+        
         # Check Agent classification from Category field.
         if row.get("Category", "").strip().lower() == "agent":
             if "agents" not in current_groups_set:
                 current_groups_set.add("agents") # Add to set first
                 changes_for_groups.append("Added Agents to Groups")
-
+        
         # Check Vendor classification from Vendor Classification field.
         if row.get("Vendor Classification", "").strip().lower() == "vendor":
             if "vendors" not in current_groups_set:
                 current_groups_set.add("vendors") # Add to set first
                 changes_for_groups.append("Added Vendors to Groups")
-
+        
         # Reconstruct the Groups string from the set to ensure no duplicates and consistent casing (e.g., title case)
         # Filter out empty strings that might have resulted from initial split if groups_str was just ","
         final_groups_list = sorted([g.title() for g in current_groups_set if g]) # Title case for display
@@ -877,7 +876,7 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
         except Exception as e:
             if logger:
                 logger(f"Error writing import file {output_path}: {e}")
-
+    
     # This function itself doesn't return the paths for process_files to return
     # process_files will list the directory. This is fine.
 
@@ -928,7 +927,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
                     for col in extra_cols_ensure:
                         row.setdefault(col, "")
                     row.setdefault("Changes Made", "No changes made.")
-
+                
                 final_fieldnames_ensure = original_headers + [col for col in extra_cols_ensure if col not in original_headers]
                 with open(merged_file, mode="w", newline="", encoding="utf-8") as f:
                     writer = csv.DictWriter(f, fieldnames=final_fieldnames_ensure, extrasaction="ignore")
@@ -974,7 +973,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
         classify_agents(final_data, email_columns)
     elif logger:
         logger("No email columns for agent classification.")
-
+    
     if extracted_addresses: # Only call classify_clients if there are MLS addresses
         classify_clients(final_data, address_columns, extracted_addresses)
     else:
@@ -987,7 +986,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
         logger("No email columns for vendor classification.")
 
     update_groups_with_classification(final_data)
-
+    
     # Preserve original Compass export column order + new columns
     # Get original order from the *source* compass_file, not the potentially modified merged_file yet.
     try:
@@ -1002,11 +1001,11 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
         if logger:
             logger(f"Error reading original Compass file header for column ordering: {e}")
         original_order = list(final_data[0].keys()) if final_data else ["First Name", "Last Name", "Email 1"]
-
+    
     # Define all possible columns that could have been added.
     # Ensure these are consistent with columns added/set in integrate_phone_into_compass and classifications
     all_potential_extra_columns = ["Category", "Changes Made", "Home Anniversary Date", "Vendor Classification", "Client Classification", "Groups"]
-
+    
     # Determine actual extra columns present in final_data but not in original_order
     actual_extra_columns_in_data = []
     if final_data:
@@ -1014,7 +1013,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
         for col in all_potential_extra_columns:
             if col in sample_row_keys and col not in original_order:
                 actual_extra_columns_in_data.append(col)
-
+    
     final_fieldnames = original_order + actual_extra_columns_in_data
     # Ensure no duplicate fieldnames if an "extra" column was somehow already in original_order (e.g. "Category")
     final_fieldnames = list(dict.fromkeys(final_fieldnames))
@@ -1026,7 +1025,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
         for row in final_data:
             new_row = {key: row.get(key, "") for key in final_fieldnames}
             reordered_data.append(new_row)
-
+    
     try:
         with open(merged_file, mode="w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=final_fieldnames, extrasaction="ignore") # Ignore fields in data not in final_fieldnames
@@ -1049,7 +1048,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
             os.path.join(import_output_dir, f) for f in os.listdir(import_output_dir)
             if os.path.isfile(os.path.join(import_output_dir, f)) # Ensure it's a file
         ]
-
+    
     # Determine which files to return based on whether they were processed/exist
     final_extracted_file = extracted_addresses_file if mls_files and os.path.exists(extracted_addresses_file) else None
     final_merged_file = merged_file if os.path.exists(merged_file) else None
