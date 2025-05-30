@@ -753,7 +753,7 @@ def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str
                 # and the field is currently empty or the new date is different
                 home_anniv_date_from_mls = matched_record_from_mls.get("Home Anniversary Date")
                 if home_anniv_date_from_mls:
-                    if row.get("Home Anniversary Date", "") != home_anniv_date_from_mls :
+                    if row.get("Home Anniversary Date", "") != home_anniv_date_from_mls:
                         row["Home Anniversary Date"] = home_anniv_date_from_mls
                         # Optionally, log this specific change if it's separate from "Classified as Client"
                         # For simplicity, the "Classified as Client" implies this data might come with it.
