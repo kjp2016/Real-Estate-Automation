@@ -697,15 +697,22 @@ def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str
         return street
 
     # MODIFIED HERE: Get Compass addresses to use only Address Line 1 for matching
-    def get_compass_address_keys(row: Dict[str, str]) -> List[str]:
-        """Build normalized address strings (street line only) from Compass address groups."""
-        keys = []
-        for i in range(1, 7): # Assuming up to 6 address fields in Compass
-            street = row.get(f"Address {i} Line 1", "").strip().lower()
-            if street:
-                # Clean common street suffixes here too if done in normalize_extracted_address_key
-                keys.append(street)
-        return keys
+    def get_compass_address_keys(row: Dict[str, str],
+                                 address_columns: List[str]) -> List[str]:
+        """
+        Return all non-empty street-line-1 values from a Compass row, in lowercase.
+        Works with 'Address Line 1', 'Address 2 Line 1', 'Street Address', etc.
+        """
+        street_keys = []
+        for col in address_columns: # address_columns is from categorize_columns()
+            col_l = col.lower()
+            if ("address" in col_l and "line 1" in col_l) or \
+               ("address" in col_l and "line1"  in col_l) or \
+               ("street"  in col_l and "address" in col_l): # This specifically targets "Street Address"
+                street = row.get(col, "").strip()
+                if street:
+                    street_keys.append(street.lower())
+        return street_keys
 
     if not extracted_addresses: # If no MLS/extracted addresses, nothing to classify
         return
