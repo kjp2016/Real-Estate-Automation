@@ -688,77 +688,119 @@ def extract_address_from_row(row: Dict[str, str], address_columns: List[str]) ->
     return " ".join(parts)
 
 
-def classify_clients(final_data: List[Dict[str, str]], address_columns: List[str], extracted_addresses: List[dict]):
-    # MODIFIED HERE: Normalize extracted addresses to use only Street Address for matching key
-    def normalize_extracted_address_key(addr: dict) -> str:
-        street = addr.get("Street Address", "").strip().lower()
-        # Clean common street suffixes for better matching if desired, e.g., " st" -> " street"
-        # For now, just simple lowercasing and stripping
-        return street
+def classify_clients_simplified(final_data: List[Dict[str, str]], 
+                                extracted_addresses: List[dict], 
+                                logger=None):
+    if logger: logger("[INFO classify_clients_simplified] Starting simplified client HAD update.")
 
-    # MODIFIED HERE: Get Compass addresses to use only Address Line 1 for matching
-    def get_compass_address_keys(row: Dict[str, str]) -> List[str]:
-        """Build normalized address strings (street line only) from Compass address groups."""
-        keys = []
-        for i in range(1, 7): # Assuming up to 6 address fields in Compass
-            street = row.get(f"Address {i} Line 1", "").strip().lower()
-            if street:
-                # Clean common street suffixes here too if done in normalize_extracted_address_key
-                keys.append(street)
-        return keys
-
-    if not extracted_addresses: # If no MLS/extracted addresses, nothing to classify
+    if not extracted_addresses:
+        if logger: logger("[DEBUG classify_clients_simplified] Extracted_addresses list is empty. No HAD update possible.")
         return
 
-    # Build lookup of normalized extracted STRETT addresses to their original full record
-    extracted_lookup = {}
-    for record in extracted_addresses:
-        key = normalize_extracted_address_key(record)
-        if key: # Only add if key is not empty
-             # If multiple extracted addresses have the same street key, last one wins.
-             # Consider if this is desired or if they should be grouped.
-            extracted_lookup[key] = record 
+    # 1. Create a simple lookup dictionary from the extracted_addresses data
+    #    Key: lowercase street address, Value: Home Anniversary Date string
+    mls_address_to_had_lookup = {}
+    for mls_record in extracted_addresses:
+        street = str(mls_record.get("Street Address", "")).strip().lower()
+        had = mls_record.get("Home Anniversary Date", "")
+        if street and had: # Only store if both street and HAD are present
+            if street not in mls_address_to_had_lookup: # Keep the first HAD if multiple entries for same street
+                 mls_address_to_had_lookup[street] = had
+            # else:
+                # if logger: logger(f"[DEBUG] Duplicate street '{street}' in MLS data. Using first HAD found.")
     
-    extracted_street_keys = list(extracted_lookup.keys())
-    if not extracted_street_keys: # No valid street keys to match against
+    if not mls_address_to_had_lookup:
+        if logger: logger("[DEBUG classify_clients_simplified] MLS address to HAD lookup is empty. No HAD update possible.")
         return
+    
+    if logger: logger(f"[DEBUG classify_clients_simplified] Created MLS lookup with {len(mls_address_to_had_lookup)} entries.")
 
-    for row in final_data:
-        # Skip if already classified as Client to avoid overriding or duplicate "Changes Made"
-        if row.get("Client Classification", "") == "Client" and row.get("Home Anniversary Date", ""):
+    successful_updates = 0
+
+    # 2. Iterate through each person (row) in the Compass data (final_data)
+    for compass_row_idx, compass_row in enumerate(final_data):
+        # Only process if Home Anniversary Date is currently null/empty in the Compass row
+        if compass_row.get("Home Anniversary Date", "").strip(): 
+            # If logger and compass_row_idx < 5: # Log for first few rows if needed
+            #     logger(f"[DEBUG] Skipping {compass_row.get('First Name')} {compass_row.get('Last Name')}, HAD already populated: {compass_row.get('Home Anniversary Date')}")
             continue
 
-        compass_street_keys = get_compass_address_keys(row)
-        matched_to_mls = False # Flag to ensure we only add "Classified as Client" once per row
+        found_match_for_this_compass_row = False
         
-        for compass_key in compass_street_keys:
-            if not compass_key: # Skip empty compass street keys
-                continue
-            
-            # Perform fuzzy match against the list of extracted street keys
-            best_match_tuple = process.extractOne(compass_key, extracted_street_keys, scorer=fuzz.WRatio)
-            
-            if best_match_tuple and best_match_tuple[1] >= 93: # Using 93 as the threshold
-                matched_mls_key = best_match_tuple[0]
-                matched_record_from_mls = extracted_lookup[matched_mls_key] # Get the full MLS record
-                
-                if not matched_to_mls: # Apply changes only on the first match for this row
-                    row["Client Classification"] = "Client"
-                    current_changes = row.get("Changes Made", "")
-                    change_msg = "Classified as Client"
-                    row["Changes Made"] = f"{current_changes} | {change_msg}" if current_changes and current_changes != "No changes made." else change_msg
-                    matched_to_mls = True # Set flag
+        # 3. Check all relevant address line columns in the Compass row
+        #    (Address Line 1, Address 1 Line 1, Address 2 Line 1 ... Address 6 Line 1, Street Address)
+        #    We'll use a predefined list or derive it dynamically
+        
+        potential_compass_street_cols = []
+        # Add Address Line 1 (no number)
+        if "Address Line 1" in compass_row:
+             potential_compass_street_cols.append("Address Line 1")
+        # Add Address i Line 1
+        for i in range(1, 7): # Address 1 Line 1 to Address 6 Line 1
+            potential_compass_street_cols.append(f"Address {i} Line 1")
+        # Add Street Address (if it exists as a column name)
+        if "Street Address" in compass_row:
+            potential_compass_street_cols.append("Street Address")
+        
+        # Remove duplicates if any column name appeared multiple times (e.g. "Address 1 Line 1" from loop and manually)
+        potential_compass_street_cols = list(dict.fromkeys(potential_compass_street_cols))
 
-                # Always update Home Anniversary Date if a better/any match provides it
-                # and the field is currently empty or the new date is different
-                home_anniv_date_from_mls = matched_record_from_mls.get("Home Anniversary Date")
-                if home_anniv_date_from_mls:
-                    if row.get("Home Anniversary Date", "") != home_anniv_date_from_mls:
-                        row["Home Anniversary Date"] = home_anniv_date_from_mls
-                        # Optionally, log this specific change if it's separate from "Classified as Client"
-                        # For simplicity, the "Classified as Client" implies this data might come with it.
+
+        for address_col_name in potential_compass_street_cols:
+            compass_street_line = str(compass_row.get(address_col_name, "")).strip().lower()
+
+            if not compass_street_line: # If this particular address field is empty, skip it
+                continue
+
+            # 4. Direct Lookup (and then fuzzy if direct fails)
+            #    For this simplified version, let's try direct first for clarity, then fuzzy
+            
+            # Attempt Direct Lookup
+            if compass_street_line in mls_address_to_had_lookup:
+                had_to_set = mls_address_to_had_lookup[compass_street_line]
+                compass_row["Home Anniversary Date"] = had_to_set
+                compass_row["Client Classification"] = "Client" # Mark as client
                 
-                break # Found a suitable match for this Compass contact, move to next contact
+                current_changes = compass_row.get("Changes Made", "")
+                change_msg = f"HAD set from direct match on '{address_col_name}'"
+                compass_row["Changes Made"] = f"{current_changes} | {change_msg}" if current_changes and current_changes.lower() != "no changes made." else change_msg
+                
+                successful_updates += 1
+                if logger: logger(f"[DEBUG] Direct match for {compass_row.get('First Name')} {compass_row.get('Last Name')} on '{compass_street_line}'. Set HAD: {had_to_set}")
+                found_match_for_this_compass_row = True
+                break # Found a match for this person, move to next person
+
+            # Attempt Fuzzy Lookup if direct failed for this compass_street_line
+            if not found_match_for_this_compass_row:
+                # process.extractOne returns (choice, score, index) or (choice, score) based on version/usage
+                # For rapidfuzz, it's (choice, score, index_of_choice_in_list)
+                # We need the list of keys from our lookup for fuzzy matching
+                mls_street_keys_list = list(mls_address_to_had_lookup.keys())
+                if not mls_street_keys_list: continue # Should not happen if lookup was populated
+
+                best_match_tuple = process.extractOne(compass_street_line, mls_street_keys_list, scorer=fuzz.WRatio)
+
+                if best_match_tuple and best_match_tuple[1] >= 93: # Your threshold
+                    matched_mls_street_key = best_match_tuple[0]
+                    had_to_set = mls_address_to_had_lookup[matched_mls_street_key]
+                    
+                    compass_row["Home Anniversary Date"] = had_to_set
+                    compass_row["Client Classification"] = "Client" # Mark as client
+
+                    current_changes = compass_row.get("Changes Made", "")
+                    change_msg = f"HAD set from fuzzy match (Score: {best_match_tuple[1]}%) on '{address_col_name}' (Compass: '{compass_street_line}' vs MLS: '{matched_mls_street_key}')"
+                    compass_row["Changes Made"] = f"{current_changes} | {change_msg}" if current_changes and current_changes.lower() != "no changes made." else change_msg
+                    
+                    successful_updates += 1
+                    if logger: logger(f"[DEBUG] Fuzzy match for {compass_row.get('First Name')} {compass_row.get('Last Name')} on Compass '{compass_street_line}' to MLS '{matched_mls_street_key}' (Score: {best_match_tuple[1]}). Set HAD: {had_to_set}")
+                    found_match_for_this_compass_row = True
+                    break # Found a match for this person, move to next person
+        
+        # if logger and not found_match_for_this_compass_row and compass_row_idx < 20: # Log if no match for first few
+            # logger(f"[DEBUG] No HAD match found for {compass_row.get('First Name')} {compass_row.get('Last Name')}")
+
+    if logger: 
+        logger(f"[INFO classify_clients_simplified] Simplified client HAD update finished. {successful_updates} records updated.")
             
 def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
     """
@@ -975,7 +1017,7 @@ def process_files(compass_file: str, phone_file: str, mls_files: List[str], outp
         logger("No email columns for agent classification.")
     
     if extracted_addresses: # Only call classify_clients if there are MLS addresses
-        classify_clients(final_data, address_columns, extracted_addresses)
+        classify_clients_simplified(final_data, extracted_addresses, logger=logger) 
     else:
         if logger:
             logger("Skipping client classification as no MLS addresses were extracted/loaded.")
