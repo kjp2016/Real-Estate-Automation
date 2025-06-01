@@ -922,7 +922,7 @@ def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
 def export_updated_records(merged_file: str, import_output_dir: str, logger=None):
     """
     Reads the merged Compass CSV, filters out only the records that have been updated 
-    (i.e. where "Changes Made" is not "No changes made." and not empty), 
+    (i.e. where "Changes Made" is not empty and not "No changes made."), 
     drops columns that should not be imported, and writes the results 
     to one or more CSV files (max 2000 records each).
     """
@@ -939,65 +939,59 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
             original_order = reader.fieldnames or []
     except FileNotFoundError:
         if logger:
-            logger(f"Error: Merged file {merged_file} not found for export.")
-        return # Exit if no merged file to process
+            logger(f"[ERROR export] Merged file {merged_file} not found.")
+        return
     except Exception as e:
         if logger:
-            logger(f"Error reading merged file {merged_file}: {e}")
+            logger(f"[ERROR export] Could not read {merged_file}: {e}")
         return
-
 
     if not rows:
         if logger:
-            logger("No data in merged file to export.")
+            logger("[INFO export] No data in merged file to export.")
         return
 
+    # — Debug: count how many rows have a non-empty/meaningful “Changes Made”
     updated_rows = [
         row for row in rows 
         if row.get("Changes Made", "").strip().lower() not in {"", "no changes made."}
     ]
-
     if logger:
-        logger(f"Found {len(updated_rows)} updated records for import.")
+        logger(f"[DEBUG export] total rows = {len(rows)}, updated rows = {len(updated_rows)}")
 
     if not updated_rows:
         if logger:
-            logger("No updated records found. Nothing to export for Compass import.")
-        return # Return empty list of paths if no files generated
+            logger("[INFO export] No updated records found. Nothing to export for Compass import.")
+        return
 
     import_fieldnames = [col for col in original_order if col not in exclude_cols]
 
+    # Split into chunks of 2000, but we’ll almost always be under that
     chunk_size = 2000
     total_chunks = (len(updated_rows) + chunk_size - 1) // chunk_size
 
     if not os.path.exists(import_output_dir):
         os.makedirs(import_output_dir)
 
-    generated_files = [] # Keep track of generated import files
     for i in range(total_chunks):
         chunk = updated_rows[i*chunk_size : (i+1)*chunk_size]
-        # Prepare chunk data: only include fields present in import_fieldnames
-        chunk_to_write = []
-        for row_original in chunk:
-            row_filtered = {key: row_original.get(key, "") for key in import_fieldnames}
-            chunk_to_write.append(row_filtered)
+        chunk_to_write = [
+            {key: row_original.get(key, "") for key in import_fieldnames}
+            for row_original in chunk
+        ]
 
         output_path = os.path.join(import_output_dir, f"compass_import_part{i+1}.csv")
-
         try:
             with open(output_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=import_fieldnames, extrasaction="drop") # drop fields not in import_fieldnames
+                writer = csv.DictWriter(f, fieldnames=import_fieldnames, extrasaction="drop")
                 writer.writeheader()
                 writer.writerows(chunk_to_write)
-            generated_files.append(output_path) # Add to list of generated files
             if logger:
-                logger(f"Exported {len(chunk)} records to {output_path}")
+                logger(f"[INFO export] Exported {len(chunk)} record(s) to {output_path}")
         except Exception as e:
             if logger:
-                logger(f"Error writing import file {output_path}: {e}")
-    
-    # This function itself doesn't return the paths for process_files to return
-    # process_files will list the directory. This is fine.
+                logger(f"[ERROR export] Could not write import file {output_path}: {e}")
+
 
 def process_files(compass_file: str, phone_file: str, mls_files: List[str], output_dir: str, logger=None):
     if not os.path.exists(output_dir):
