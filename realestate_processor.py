@@ -874,41 +874,49 @@ def classify_clients_simplified(final_data: List[Dict[str, str]],
 def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
     """
     Updates the 'Groups' field for each contact based on their classification.
-    If the contact is classified as an Agent (Category == 'Agent') and the Groups field
-    does not include 'Agents', it appends it. The same applies for Vendor.
+    If the contact is classified as an Agent (Category == 'Agent'), it appends 'Agents'.
+    If Vendor Classification == 'Vendor', it appends 'Vendors'.
+    If Client Classification == 'Past client', it appends 'Past Clients'.
     Any changes are appended to the 'Changes Made' field.
     """
     for row in final_data:
         groups_str = row.get("Groups", "").strip()
-        # Split by comma, strip whitespace from each group, filter out empty strings, and convert to set for easier checking
-        current_groups_set = {g.strip().lower() for g in groups_str.split(',') if g.strip()}
-        
+        # Build a lowercase set of existing group names, to prevent duplicates
+        current_groups_set = {g.strip().lower() for g in groups_str.split(",") if g.strip()}
+
         changes_for_groups = []
-        
-        # Check Agent classification from Category field.
+
+        # Check Agent classification
         if row.get("Category", "").strip().lower() == "agent":
             if "agents" not in current_groups_set:
-                current_groups_set.add("agents") # Add to set first
+                current_groups_set.add("agents")
                 changes_for_groups.append("Added Agents to Groups")
-        
-        # Check Vendor classification from Vendor Classification field.
+
+        # Check Vendor classification
         if row.get("Vendor Classification", "").strip().lower() == "vendor":
             if "vendors" not in current_groups_set:
-                current_groups_set.add("vendors") # Add to set first
+                current_groups_set.add("vendors")
                 changes_for_groups.append("Added Vendors to Groups")
-        
-        # Reconstruct the Groups string from the set to ensure no duplicates and consistent casing (e.g., title case)
-        # Filter out empty strings that might have resulted from initial split if groups_str was just ","
-        final_groups_list = sorted([g.title() for g in current_groups_set if g]) # Title case for display
+
+        # Check Client classification for 'Past client'
+        if row.get("Client Classification", "").strip().lower() == "past client":
+            if "past clients" not in current_groups_set:
+                current_groups_set.add("past clients")
+                changes_for_groups.append("Added Past Clients to Groups")
+
+        # Reconstruct the Groups string with title‐case and comma‐separated
+        final_groups_list = sorted([g.title() for g in current_groups_set if g])
         row["Groups"] = ",".join(final_groups_list)
 
+        # Append any group‐related changes to 'Changes Made'
         if changes_for_groups:
-            current_changes_made = row.get("Changes Made", "").strip()
+            current_changes = row.get("Changes Made", "").strip()
             group_change_log = "; ".join(changes_for_groups)
-            if current_changes_made and current_changes_made.lower() != "no changes made.":
-                row["Changes Made"] = f"{current_changes_made} | {group_change_log}"
+            if current_changes and current_changes.lower() != "no changes made.":
+                row["Changes Made"] = f"{current_changes} | {group_change_log}"
             else:
                 row["Changes Made"] = group_change_log
+
 
 
 def export_updated_records(merged_file: str, import_output_dir: str, logger=None):
