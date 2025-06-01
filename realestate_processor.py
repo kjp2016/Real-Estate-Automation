@@ -828,7 +828,7 @@ def classify_clients_simplified(final_data: List[Dict[str, str]],
             if compass_street_line in mls_address_to_had_lookup:
                 had_to_set = mls_address_to_had_lookup[compass_street_line]
                 compass_row["Home Anniversary Date"] = had_to_set
-                compass_row["Client Classification"] = "Client" # Mark as client
+                compass_row["Client Classification"] = "Past client" # Mark as client
                 
                 current_changes = compass_row.get("Changes Made", "")
                 change_msg = f"HAD set from direct match on '{address_col_name}'"
