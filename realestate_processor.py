@@ -997,7 +997,7 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
         output_path = os.path.join(import_output_dir, f"compass_import_part{i+1}.csv")
         try:
             with open(output_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=import_fieldnames, extrasaction="drop")
+                writer = csv.DictWriter(f, fieldnames=import_fieldnames, extrasaction="ignore")
                 writer.writeheader()
                 writer.writerows(chunk_to_write)
             if logger:
