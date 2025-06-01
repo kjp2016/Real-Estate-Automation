@@ -921,15 +921,13 @@ def update_groups_with_classification(final_data: List[Dict[str, str]]) -> None:
 
 def export_updated_records(merged_file: str, import_output_dir: str, logger=None):
     """
-    Reads the merged Compass CSV, filters out only the records that have been updated 
-    (i.e. where "Changes Made" is not empty and not "No changes made."), 
-    drops columns that should not be imported, and writes the results 
-    to one or more CSV files (max 2000 records each).
+    Reads the merged CSV, finds any row whose 'Changes Made' is not empty and not 'No changes made.',
+    then writes those rows—minus the excluded columns—into one or more csvs of at most 2000 rows each.
     """
     exclude_cols = {
-        "Created At", "Last Contacted", "Changes Made", "Category", 
+        "Created At", "Last Contacted", "Changes Made", "Category",
         "Agent Classification", "Client Classification", "Vendor Classification"
-        # Note: "Home Anniversary Date" is KEPT for import
+        # Note: "Home Anniversary Date" stays in the import file
     }
 
     try:
@@ -951,11 +949,16 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
             logger("[INFO export] No data in merged file to export.")
         return
 
-    # — Debug: count how many rows have a non-empty/meaningful “Changes Made”
-    updated_rows = [
-        row for row in rows 
-        if row.get("Changes Made", "").strip().lower() not in {"", "no changes made."}
-    ]
+    # Collect all rows whose 'Changes Made' is neither blank nor exactly 'No changes made.'
+    updated_rows = []
+    for row in rows:
+        raw = row.get("Changes Made", "")
+        if not raw:
+            continue
+        stripped = raw.strip()
+        if stripped and stripped.lower() != "no changes made.":
+            updated_rows.append(row)
+
     if logger:
         logger(f"[DEBUG export] total rows = {len(rows)}, updated rows = {len(updated_rows)}")
 
@@ -966,7 +969,7 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
 
     import_fieldnames = [col for col in original_order if col not in exclude_cols]
 
-    # Split into chunks of 2000, but we’ll almost always be under that
+    # Split into chunks of up to 2000 rows each
     chunk_size = 2000
     total_chunks = (len(updated_rows) + chunk_size - 1) // chunk_size
 
@@ -974,7 +977,7 @@ def export_updated_records(merged_file: str, import_output_dir: str, logger=None
         os.makedirs(import_output_dir)
 
     for i in range(total_chunks):
-        chunk = updated_rows[i*chunk_size : (i+1)*chunk_size]
+        chunk = updated_rows[i * chunk_size : (i + 1) * chunk_size]
         chunk_to_write = [
             {key: row_original.get(key, "") for key in import_fieldnames}
             for row_original in chunk
