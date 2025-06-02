@@ -860,7 +860,7 @@ def classify_clients_simplified(final_data: List[Dict[str, str]],
                     had_to_set = mls_address_to_had_lookup[matched_mls_street_key]
 
                     compass_row["Home Anniversary Date"] = had_to_set
-                    compass_row["Client Classification"] = "Client"
+                    compass_row["Client Classification"] = "Past client"
 
                     current_changes = compass_row.get("Changes Made", "")
                     change_msg = (
