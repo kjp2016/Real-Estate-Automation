@@ -10,6 +10,7 @@ import openai
 from rapidfuzz import process, fuzz
 from typing import List, Dict, Tuple
 import streamlit as st
+import time
 
 
 # ---------------------------
@@ -103,6 +104,7 @@ def extract_addresses_with_ai_chunked(text: str, max_lines: int = 50, logger=Non
                 logger(f"[DEBUG] Sending chunk {i//max_lines + 1} to OpenAI")
             result = extract_addresses_with_ai(chunk)
             addresses.extend(result)
+            time.sleep(1.0)
         return addresses
 
 
